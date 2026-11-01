@@ -1,4 +1,4 @@
-
+#include "DeviceRegistry.h"
 #include <Arduino.h>
 
 #include "WifiService.h"
@@ -11,10 +11,11 @@ void setup() {
     Serial.println();
     Serial.println("======================");
     Serial.println(" KhaiRC ESP32 Hub");
-    Serial.println(" Firmware v0.1.0");
+    Serial.println(" Firmware v0.2.0-dev");
     Serial.println("======================");
 
     WifiService::begin();
+    DeviceRegistry::begin();
     ApiServer::begin();
 }
 

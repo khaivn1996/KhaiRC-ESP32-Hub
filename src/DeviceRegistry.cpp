@@ -1,0 +1,83 @@
+
+#include "DeviceRegistry.h"
+
+namespace {
+
+struct Device {
+    const char* id;
+    const char* name;
+    const char* type;
+    const char* transport;
+};
+
+const Device devices[] = {
+    {"daikin_ac", "Daikin AC", "ir_ac", "ir"},
+    {"toshiba_ac", "Toshiba AC", "ir_ac", "ir"},
+    {"fan_ir", "IR Fan", "ir_fan", "ir"},
+    {"rangdong_plug_01", "Rang Dong Plug",
+     "tuya_plug", "tuya_cloud"}
+};
+
+constexpr size_t DEVICE_COUNT =
+    sizeof(devices) / sizeof(devices[0]);
+
+void appendDeviceJson(String& json, const Device& d) {
+    json += "{\"id\":\"";
+    json += d.id;
+
+    json += "\",\"name\":\"";
+    json += d.name;
+
+    json += "\",\"type\":\"";
+    json += d.type;
+
+    json += "\",\"transport\":\"";
+    json += d.transport;
+
+    json += "\",\"availability\":\"not_configured\"}";
+}
+
+}
+
+namespace DeviceRegistry {
+
+void begin() {
+    Serial.printf(
+        "[Devices] Registered: %u\n",
+        (unsigned int)DEVICE_COUNT
+    );
+}
+
+String listJson() {
+    String json;
+    json.reserve(768);
+
+    json = "{\"schema_version\":1,\"devices\":[";
+
+    for (size_t i = 0; i < DEVICE_COUNT; ++i) {
+        if (i > 0) json += ",";
+        appendDeviceJson(json, devices[i]);
+    }
+
+    json += "]}";
+    return json;
+}
+
+String deviceJson(const String& id) {
+    for (size_t i = 0; i < DEVICE_COUNT; ++i) {
+        if (id == devices[i].id) {
+            String json;
+            json.reserve(256);
+
+            json = "{\"schema_version\":1,\"device\":";
+            appendDeviceJson(json, devices[i]);
+            json += "}";
+
+            return json;
+        }
+    }
+
+    return String();
+}
+
+}
