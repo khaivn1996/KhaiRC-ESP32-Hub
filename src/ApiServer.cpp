@@ -1,3 +1,4 @@
+#include "CommandApi.h"
 #include "DeviceRegistry.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -67,8 +68,22 @@ void begin() {
         );
     });
 
+    CommandApi::registerRoutes(server);
+
     server.onNotFound([]() {
         String path = server.uri();
+        
+        if (path == "/api/v1/commands") {
+            server.sendHeader("Allow", "POST");
+
+            server.send(
+                405,
+                "application/json",
+                "{\"error\":{\"code\":\"method_not_allowed\"}}"
+            );
+
+            return;
+        }
 
         const String devicePrefix = "/api/v1/devices/";
 
