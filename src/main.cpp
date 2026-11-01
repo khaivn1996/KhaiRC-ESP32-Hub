@@ -1,6 +1,6 @@
 #include "DeviceRegistry.h"
 #include <Arduino.h>
-
+#include "IrDiagnostics.h"
 #include "WifiService.h"
 #include "ApiServer.h"
 
@@ -17,6 +17,7 @@ void setup() {
     WifiService::begin();
     DeviceRegistry::begin();
     ApiServer::begin();
+    IrDiagnostics::begin();
 }
 
 void loop() {
