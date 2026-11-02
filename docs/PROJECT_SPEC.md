@@ -1,3 +1,11 @@
+---
+spec_version: 1
+project: KhaiRC-ESP32-Hub
+last_synced_commit: 19f655cc4a3680e362f4c963aaa5b39c2b3d9a4f
+last_synced_at: 2026-11-02
+last_full_scan_commit: 19f655cc4a3680e362f4c963aaa5b39c2b3d9a4f
+---
+
 # KhaiRC-ESP32-Hub — Đặc tả dự án
 
 > File này do skill `$docs` duy trì. Đọc file này trước khi làm tính năng mới.
@@ -22,7 +30,7 @@ PlatformIO chọn board `esp32-s3-devkitc-1`; tên environment là `esp32-s3-n16
 
 | Chức năng | GPIO | Chiều | Ghi chú |
 |---|---|---|---|
-| IR TX / `IR_PIN` | 4 | Output | GPIO trực tiếp khi khởi tạo/thử DC; RMT TX khi phát IR; nghỉ LOW, mark HIGH |
+| IR TX / `IR_PIN` | 4 | Output | GPIO trực tiếp khi thử DC; RMT TX khi phát IR; nghỉ LOW, mark HIGH |
 | Serial qua USB-UART | Không gán trong code | Vào/ra | 115200 baud; cấu hình ghi chú CH343, `ARDUINO_USB_CDC_ON_BOOT=0`; không xác nhận chân UART từ repo |
 
 Chỉ GPIO4 được gán tường minh trong ứng dụng. Không có cấu hình RX IR, I2C, SPI, LEDC hay ngoại vi khác. Không thấy ứng dụng gán các chân 0/3/45/46, 19/20 hoặc 26–37; đây không thay thế kiểm tra sơ đồ board.
@@ -50,7 +58,7 @@ Nguồn: `platformio.ini`, `include/README`, `lib/README`, `test/README`, `tools
 
 ## 3. Cấu trúc thư mục & kiến trúc
 
-HEAD có 18 file được track: `src/` 6 file `.cpp`, `include/` 5 header và 1 README, `lib/`, `test/`, `tools/`, `.vscode/` mỗi thư mục 1 file, cùng `platformio.ini` và `.gitignore`. Metadata IDE được kiểm kê nhưng bỏ qua khi phân tích chức năng.
+HEAD có 22 file được track: `src/` 6 file `.cpp`, `include/` 5 header và 1 README, `lib/`, `test/`, `tools/`, `.vscode/`, `docs/` mỗi thư mục 1 file, `.agents/` 2 file, cùng `platformio.ini`, `.gitignore` và `AGENTS.md`. Metadata IDE được kiểm kê nhưng bỏ qua khi phân tích chức năng.
 
 | Vị trí | Vai trò |
 |---|---|
@@ -60,10 +68,11 @@ HEAD có 18 file được track: `src/` 6 file `.cpp`, `include/` 5 header và 1
 | `lib/`, `test/` | Chỉ có README mẫu; chưa có thư viện nội bộ hoặc test |
 | `platformio.ini` | Board, framework, flags, dependency |
 | `.gitignore` | Loại build output, cấu hình IDE, credential cục bộ và log khỏi Git |
+| `.agents/skills/docs/`, `AGENTS.md`, `docs/PROJECT_SPEC.md` | Skill đồng bộ, hướng dẫn agent và đặc tả dự án |
 
 Luồng phụ thuộc: `main → WifiService, DeviceRegistry, ApiServer, IrDiagnostics`; `ApiServer → WifiService, DeviceRegistry, CommandApi`; `CommandApi → DeviceRegistry, ArduinoJson`; `IrDiagnostics → GPIO/RMT`. Không có đường gọi `CommandApi → IrDiagnostics`.
 
-Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `platformio.ini`, `.gitignore`, `include/README`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`.
+Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `platformio.ini`, `.gitignore`, `include/README`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `.agents/skills/docs/SKILL.md`, `AGENTS.md`.
 
 ## 4. Luồng khởi động & runtime
 
@@ -89,7 +98,7 @@ Nguồn: `src/main.cpp`, `src/WifiService.cpp`, `src/ApiServer.cpp`, `src/IrDiag
 - Mục đích: kết nối mạng STA, báo thay đổi trạng thái và thử kết nối lại.
 - API public: `void WifiService::begin();`, `void WifiService::loop();`, `bool WifiService::connected();`.
 - `begin()` đặt hostname `khairc-hub`, `WIFI_STA`, `WiFi.setAutoReconnect(true)`, gọi `WiFi.begin(WIFI_SSID, WIFI_PASSWORD)` rồi lưu thời điểm; không chờ mạng bằng vòng lặp.
-- `connected()` so sánh `WiFi.status()` với `WL_CONNECTED`. `loop()` log `[WiFi]` khi online/offline, in IP khi vừa online; khi offline đủ `RETRY_MS=30000` thì gọi `WiFi.reconnect()`.
+- `connected()` so sánh `WiFi.status()` với `WL_CONNECTED`. `loop()` log `[WiFi]` khi online/offline, in IP khi vừa online; nếu đang offline và đã đủ `RETRY_MS=30000` kể từ `begin()` hoặc lần retry trước thì gọi `WiFi.reconnect()` và cập nhật `lastRetry`.
 - Phụ thuộc: Arduino WiFi và credential cục bộ; `lastRetry`, `wasConnected` nằm trong RAM. Không có AP, provisioning, mDNS hoặc task riêng trong module.
 
 Nguồn: `include/WifiService.h`, `src/WifiService.cpp`, `src/main.cpp`, `.gitignore`.
@@ -152,7 +161,7 @@ Nguồn: `include/DeviceRegistry.h`, `src/DeviceRegistry.cpp`.
 
 Khung Toshiba dùng header MARK/SPACE 4350/4300 µs; mỗi bit MARK 550 µs, SPACE 1600 µs cho 1 hoặc 550 µs cho 0; stop 550/550 µs. Không suy ra chức năng power/mode/nhiệt độ từ tên bài thử. Mỗi lần truyền RMT dùng `loop_count=0`, mức kết thúc LOW và chờ hoàn tất tối đa 1000 ms.
 
-Chỉ `testToshibaFix()` được gọi trong entrypoint hiện tại. Các hàm thử chạy trong luồng gọi và chặn luồng trong thời gian chờ. Không có RX, decoder, học lệnh, gửi raw qua API, driver Daikin hoặc profile AC tổng quát. Dữ liệu IR là mảng C++ trong firmware; không lưu NVS, file hay cloud.
+Trong các hàm thử, chỉ `testToshibaFix()` được gọi trong entrypoint hiện tại. Các hàm thử chạy trong luồng gọi và chặn luồng trong thời gian chờ. Không có RX, decoder, học lệnh, gửi raw qua API, driver Daikin hoặc profile AC tổng quát. Dữ liệu IR là mảng C++ trong firmware; không lưu NVS, file hay cloud.
 
 Nguồn: `include/IrDiagnostics.h`, `src/IrDiagnostics.cpp`, `src/main.cpp`.
 
@@ -196,7 +205,7 @@ Thứ tự xử lý POST commands:
 | 7 | Action là `power_on` hoặc `power_off` | `422 unsupported_action` |
 | 8 | Chưa có driver nối với gateway | Luôn `503 device_not_ready` |
 
-Field JSON dư không bị từ chối. Giới hạn body nằm trong handler ứng dụng. Không có nonce, timestamp chống replay hoặc rate limit trong code. Capability `ir_send=false` mô tả khả năng API; các bài thử IR trực tiếp vẫn tồn tại riêng.
+Field JSON dư không bị từ chối. Giới hạn body nằm trong handler ứng dụng. Không có nonce, timestamp chống replay hoặc rate limit trong code. Endpoint capabilities trả `ir_send=false` cố định; các bài thử IR trực tiếp vẫn tồn tại riêng.
 
 Nguồn: `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`.
 
@@ -227,8 +236,9 @@ Nguồn: `platformio.ini`, `.gitignore`, `src/WifiService.cpp`, `src/CommandApi.
 - HTTP dùng lambda `server.on()`, lỗi JSON thống nhất; command xác thực trước validation nội dung và không báo thành công khi chưa có driver.
 - Response thường ghép `String`; ArduinoJson chỉ parse lệnh. Registry reserve dung lượng trước khi ghép, các khung IR dùng mảng fixed-size/static hoặc local, không có allocator riêng.
 - Firmware version là chuỗi cố định ở startup và health, chưa có nguồn version dùng chung. Catalog có schema version độc lập với firmware version.
+- `AGENTS.md` yêu cầu đọc spec trước khi sửa tính năng và chạy `$docs` sau khi commit. Skill đồng bộ chỉ ghi spec/khối marker, lấy trạng thái đã commit, bỏ qua secret; metadata skill đặt `allow_implicit_invocation: false`.
 
-Nguồn: `include/ApiServer.h`, `include/CommandApi.h`, `include/DeviceRegistry.h`, `include/IrDiagnostics.h`, `include/WifiService.h`, `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`.
+Nguồn: `include/ApiServer.h`, `include/CommandApi.h`, `include/DeviceRegistry.h`, `include/IrDiagnostics.h`, `include/WifiService.h`, `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `AGENTS.md`, `.agents/skills/docs/SKILL.md`, `.agents/skills/docs/agents/openai.yaml`.
 
 ## 9. Cách thêm tính năng mới
 
@@ -253,19 +263,19 @@ Nguồn: `platformio.ini`, `.gitignore`, `src/main.cpp`, `include/IrDiagnostics.
 - [ ] Xác nhận ý nghĩa và tương thích thiết bị thật của khung Toshiba FIX và raw quạt `POWER_HIGH`; comment dẫn nguồn Android ngoài repo, chưa có dữ liệu học/thu hay test phần cứng trong Git. Không coi tên thiết bị trong catalog là bằng chứng driver hoàn chỉnh. — Nguồn: `src/IrDiagnostics.cpp`, `src/DeviceRegistry.cpp`.
 - [ ] Điều khiển API/cloud chưa hoàn thành: mọi thiết bị `not_configured`, lệnh hợp lệ trả `503`; chưa có triển khai Daikin/Tuya, report trạng thái hoặc OTA. Các diagnostics chưa nối vào command gateway. — Nguồn: `src/DeviceRegistry.cpp`, `src/CommandApi.cpp`, `src/ApiServer.cpp`, `src/main.cpp`.
 
-Không tìm thấy marker `TODO`, `FIXME`, `HACK`, `XXX` trong các file nguồn/cấu hình/tài liệu được quét. Không có README dự án để đối chiếu mâu thuẫn; ba README hiện có là tài liệu mẫu PlatformIO.
+Không tìm thấy marker `TODO`, `FIXME`, `HACK`, `XXX` trong mã ứng dụng, cấu hình build, script và các README mẫu. Không có README dự án để đối chiếu mâu thuẫn; ba README hiện có là tài liệu mẫu PlatformIO.
 
 Nguồn: `platformio.ini`, `src/main.cpp`, `src/IrDiagnostics.cpp`, `src/DeviceRegistry.cpp`, `src/CommandApi.cpp`, `src/ApiServer.cpp`, `src/WifiService.cpp`, `.gitignore`, `include/README`, `lib/README`, `test/README`.
 
 ## 11. Nhật ký đồng bộ
 
-- 2026-11-02 FULL @a7240ce — tạo đặc tả từ toàn bộ 18 file được track; metadata IDE chỉ kiểm kê, không đọc nội dung. Không đưa cấu hình cục bộ hay thay đổi chưa commit vào đặc tả.
+- 2026-11-02 FULL @19f655c — tạo đặc tả, kiểm kê đủ 22 file tracked; bắt đầu tại a7240ce, cập nhật thêm tài liệu/skill từ hai commit phát sinh trong lúc quét, firmware không đổi. Metadata IDE chỉ kiểm kê; không đưa cấu hình cục bộ hay thay đổi chưa commit vào đặc tả.
 
 Nguồn: cây Git và lịch sử commit tại mốc đồng bộ trong front matter.
 
 ## 12. Bản đồ file → mục
 
-Mỗi file trong 18 file tracked tại mốc đồng bộ thuộc một dòng dưới đây. Các file tài liệu được tạo trong lần đồng bộ cũng có dòng riêng để dùng cho lần sau. Năm module chức năng là §5.1–§5.5; thay đổi phần dùng chung cần xét thêm các mục liên quan.
+Mỗi file trong 22 file tracked tại mốc đồng bộ thuộc một dòng dưới đây. Năm module chức năng là §5.1–§5.5; thay đổi phần dùng chung cần xét thêm các mục liên quan.
 
 | Glob | Mục | Ghi chú |
 |---|---|---|
@@ -280,6 +290,7 @@ Mỗi file trong 18 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `include/README`, `lib/README`, `test/README` | §2, §3, §10 | README mẫu; chưa có test thực thi |
 | `tools/**` | §2, §3, §7, §9 | Monitor HTTP trên máy phát triển |
 | `.vscode/**` | §3 | Metadata IDE; bỏ qua trong bộ lọc đồng bộ |
+| `.agents/skills/docs/**` | §3, §8, §9 | Skill và metadata điều khiển đồng bộ đặc tả |
 | `docs/PROJECT_SPEC.md` | §0–§12 | Spec tự quản lý; bỏ qua diff đầu vào |
 | `AGENTS.md` | §8, §9 | Khối hướng dẫn đọc/đồng bộ spec |
 
