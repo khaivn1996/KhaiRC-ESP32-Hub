@@ -18,11 +18,33 @@ void setup() {
     DeviceRegistry::begin();
     ApiServer::begin();
     IrDiagnostics::begin();
+
+    Serial.println("[IR TEST] Toshiba FIX ready");
 }
 
 void loop() {
     WifiService::loop();
     ApiServer::loop();
+
+    // Chi phat FIX 1 lan sau moi lan khoi dong.
+    static bool testSent = false;
+
+    if (!testSent && millis() >= 10000) {
+        testSent = true;
+
+        Serial.println("[IR TEST] Sending Toshiba FIX");
+
+        IrDiagnostics::testToshibaFix();
+    }
+
+    // Thu cong bang 'f' neu ket noi PC.
+    if (Serial.available()) {
+        char command = Serial.read();
+
+        if (command == 'f' || command == 'F') {
+            IrDiagnostics::testToshibaFix();
+        }
+    }
 
     delay(5);
 }
