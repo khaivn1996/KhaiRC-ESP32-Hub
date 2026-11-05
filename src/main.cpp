@@ -11,7 +11,7 @@ void setup() {
     Serial.println();
     Serial.println("======================");
     Serial.println(" KhaiRC ESP32 Hub");
-    Serial.println(" Firmware v0.2.0-dev");
+    Serial.println(" Firmware v0.3.0-ir1");
     Serial.println("======================");
 
     WifiService::begin();
@@ -21,6 +21,7 @@ void setup() {
 
     Serial.println("[IR TEST] Manual mode: S = TAIZ SWING, F = Toshiba FIX");
     Serial.println("[IR TEST] No automatic IR transmission at boot");
+    Serial.println("[CommandAPI] Fan HIGH/SWING/OFF and Toshiba FIX available over HTTP when IR is ready");
 }
 
 void loop() {

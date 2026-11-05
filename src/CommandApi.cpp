@@ -6,6 +6,7 @@
 
 #include "CommandApi.h"
 #include "DeviceRegistry.h"
+#include "IrDiagnostics.h"
 #include "secrets.h"
 
 namespace {
@@ -105,6 +106,15 @@ void handleCommand(WebServer& server) {
         return;
     }
 
+    // Reject embedded NULs instead of silently accepting a truncated command.
+    if (doc["device_id"].as<JsonString>().size() !=
+            strlen(doc["device_id"].as<const char*>()) ||
+        doc["action"].as<JsonString>().size() !=
+            strlen(doc["action"].as<const char*>())) {
+        sendError(server, 400, "invalid_command");
+        return;
+    }
+
     String deviceId =
         doc["device_id"].as<const char*>();
 
@@ -125,16 +135,50 @@ void handleCommand(WebServer& server) {
         return;
     }
 
-    // 6. Validate initial command vocabulary.
-    if (action != "power_on" &&
-        action != "power_off") {
+    // 6. Validate vocabulary for this device before touching hardware.
+    const bool fan = deviceId == "fan_ir";
+    const bool toshiba = deviceId == "toshiba_ac";
+    const bool supported = fan
+        ? (action == "power_on" || action == "swing" || action == "power_off")
+        : (toshiba ? action == "fix"
+                   : (action == "power_on" || action == "power_off"));
+
+    if (!supported) {
         sendError(server, 422, "unsupported_action");
         return;
     }
 
-    // 7. No hardware driver is available yet.
-    // Do not modify device state or claim success.
-    sendError(server, 503, "device_not_ready");
+    // 7. Daikin and Tuya still have no executable driver.
+    if ((!fan && !toshiba) || !IrDiagnostics::isReady()) {
+        sendError(server, 503, "device_not_ready");
+        return;
+    }
+
+    // 8. Execute exactly once; only success after the RMT wait completes.
+    esp_err_t result;
+    if (toshiba) {
+        result = IrDiagnostics::sendToshibaFix();
+    } else if (action == "power_on") {
+        result = IrDiagnostics::sendFanHigh();
+    } else if (action == "power_off") {
+        result = IrDiagnostics::sendFanOff();
+    } else {
+        result = IrDiagnostics::sendFanSwing();
+    }
+
+    if (result != ESP_OK) {
+        sendError(server, 500, "ir_send_failed");
+        return;
+    }
+
+    // Both identifiers were matched against the fixed command vocabulary.
+    // "sent" describes the transmitter, not the actual appliance state.
+    String json = "{\"schema_version\":1,\"device_id\":\"";
+    json += deviceId;
+    json += "\",\"action\":\"";
+    json += action;
+    json += "\",\"transport\":\"ir\",\"status\":\"sent\",\"state_verified\":false}";
+    server.send(200, "application/json", json);
 }
 
 }

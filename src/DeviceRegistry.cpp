@@ -1,5 +1,7 @@
 
 #include "DeviceRegistry.h"
+#include "IrDiagnostics.h"
+#include <cstring>
 
 namespace {
 
@@ -34,7 +36,23 @@ void appendDeviceJson(String& json, const Device& d) {
     json += "\",\"transport\":\"";
     json += d.transport;
 
-    json += "\",\"availability\":\"not_configured\"}";
+    const bool fan = strcmp(d.id, "fan_ir") == 0;
+    const bool toshiba = strcmp(d.id, "toshiba_ac") == 0;
+
+    // Availability reports the local driver, not appliance power/reachability.
+    json += "\",\"availability\":\"";
+    json += (fan || toshiba)
+        ? (IrDiagnostics::isReady() ? "ready" : "not_ready")
+        : "not_configured";
+    json += "\",\"supported_actions\":";
+    if (fan) {
+        json += "[\"power_on\",\"swing\",\"power_off\"]";
+    } else if (toshiba) {
+        json += "[\"fix\"]";
+    } else {
+        json += "[]";
+    }
+    json += "}";
 }
 
 }

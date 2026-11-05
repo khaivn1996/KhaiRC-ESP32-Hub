@@ -1,5 +1,6 @@
 #include "CommandApi.h"
 #include "DeviceRegistry.h"
+#include "IrDiagnostics.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -20,7 +21,7 @@ void begin() {
         String json = "{";
         json += "\"status\":\"ok\",";
         json += "\"device\":\"KhaiRC-ESP32-Hub\",";
-        json += "\"firmware\":\"0.2.0-dev\",";
+        json += "\"firmware\":\"0.3.0-ir1\",";
         json += "\"uptime_sec\":";
         json += String(millis() / 1000);
         json += ",\"free_heap\":";
@@ -56,15 +57,13 @@ void begin() {
     });
 
     server.on("/api/v1/capabilities", HTTP_GET, []() {
+        String json = "{\"schema_version\":1,\"capabilities\":{\"ir_send\":";
+        json += IrDiagnostics::isReady() ? "true" : "false";
+        json += ",\"tuya_control\":false,\"cloud_access\":false}}";
         server.send(
             200,
             "application/json",
-            "{\"schema_version\":1,"
-            "\"capabilities\":{"
-            "\"ir_send\":false,"
-            "\"tuya_control\":false,"
-            "\"cloud_access\":false"
-            "}}"
+            json
         );
     });
 

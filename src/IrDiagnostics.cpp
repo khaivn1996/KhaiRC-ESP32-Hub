@@ -23,9 +23,46 @@ void printError(const char* step, esp_err_t err) {
     );
 }
 
+// All callers run sequentially on the Arduino loop task. No automatic retry:
+// an uncertain SWING/FIX transmission must not become a second button press.
+esp_err_t transmitSymbols(
+    const rmt_symbol_word_t* symbols,
+    size_t sizeBytes,
+    const char* label
+) {
+    rmt_transmit_config_t config = {};
+    config.loop_count = 0;
+    config.flags.eot_level = 0;
+
+    esp_err_t err = rmt_transmit(
+        txChannel, txEncoder, symbols, sizeBytes, &config
+    );
+
+    if (err == ESP_OK) {
+        err = rmt_tx_wait_all_done(txChannel, 1000);
+    }
+
+    if (err != ESP_OK) {
+        // Keep subsequent requests from overwriting an in-flight buffer.
+        // A reset is required after a driver fault; never resend automatically.
+        initialized = false;
+        const esp_err_t stopError = rmt_disable(txChannel);
+        if (stopError != ESP_OK) {
+            printError("disable_after_error", stopError);
+        }
+    }
+
+    printError(label, err);
+    return err;
+}
+
 } // namespace
 
 namespace IrDiagnostics {
+
+bool isReady() {
+    return initialized && txChannel && txEncoder;
+}
 
 void testDc() {
     Serial.println("[IR] DC TEST: PREPARING");
@@ -156,10 +193,10 @@ void testBurst() {
 }
 
 
-void testFanHigh() {
-    if (!initialized || !txChannel || !txEncoder) {
+esp_err_t sendFanHigh() {
+    if (!isReady()) {
         Serial.println("[IR] Fan HIGH: not ready");
-        return;
+        return ESP_ERR_INVALID_STATE;
     }
 
     // Ma POWER_HIGH tu FanIrCodes.kt cua KhaiRC Android.
@@ -196,34 +233,15 @@ void testFanHigh() {
         symbols[i].duration1 = pattern[i * 2 + 1];
     }
 
-    rmt_transmit_config_t config = {};
-    config.loop_count = 0;
-    config.flags.eot_level = 0;
-
-    esp_err_t err = rmt_transmit(
-        txChannel,
-        txEncoder,
-        symbols,
-        sizeof(symbols),
-        &config
-    );
-
-    if (err == ESP_OK) {
-        err = rmt_tx_wait_all_done(txChannel, 1000);
-    }
-
-    Serial.printf(
-        "[IR] Fan HIGH: %s\n",
-        esp_err_to_name(err)
-    );
+    return transmitSymbols(symbols, sizeof(symbols), "Fan HIGH");
 }
 
 
 
-void testFanSwing() {
-    if (!initialized || !txChannel || !txEncoder) {
+esp_err_t sendFanSwing() {
+    if (!isReady()) {
         Serial.println("[IR] Fan TAIZ SWING: not ready");
-        return;
+        return ESP_ERR_INVALID_STATE;
     }
 
     // KhaiRC Android: FanIrCodes.SWING @ 323c201.
@@ -260,30 +278,54 @@ void testFanSwing() {
         symbols[i].duration1 = pattern[i * 2 + 1];
     }
 
-    rmt_transmit_config_t config = {};
-    config.loop_count = 0;
-    config.flags.eot_level = 0;
-
-    esp_err_t err = rmt_transmit(
-        txChannel,
-        txEncoder,
-        symbols,
-        sizeof(symbols),
-        &config
-    );
-
-    if (err == ESP_OK) {
-        err = rmt_tx_wait_all_done(txChannel, 1000);
-    }
-
-    Serial.printf("[IR] Fan TAIZ SWING: %s\n", esp_err_to_name(err));
+    return transmitSymbols(symbols, sizeof(symbols), "Fan TAIZ SWING");
 }
 
 
-void testToshibaFix() {
-    if (!initialized || !txChannel || !txEncoder) {
+esp_err_t sendFanOff() {
+    if (!isReady()) {
+        Serial.println("[IR] Fan OFF: not ready");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // KhaiRC Android FanIrCodes.OFF @ 323c201, copied without changes.
+    // The three captured groups form one button press, sent once.
+    static constexpr uint16_t pattern[] = {
+        1222, 462, 1218, 466, 422, 1226,
+        1218, 466, 1218, 462, 1218, 466,
+        422, 1226, 422, 1226, 422, 1254,
+        446, 1202, 1222, 462, 1326, 6926,
+
+        1222, 462, 1218, 466, 418, 1230,
+        1218, 466, 1218, 462, 1218, 466,
+        418, 1230, 422, 1226, 446, 1206,
+        418, 1254, 1222, 486, 1322, 6930,
+
+        1222, 462, 1222, 462, 418, 1254,
+        1222, 462, 1218, 466, 1218, 462,
+        422, 1230, 418, 1230, 418, 1230,
+        422, 1226, 1222, 462, 1326, 1000
+    };
+
+    constexpr size_t count = sizeof(pattern) / sizeof(pattern[0]);
+    static_assert(count == 72, "TAIZ OFF must have 72 raw durations");
+    static rmt_symbol_word_t symbols[count / 2] = {};
+
+    for (size_t i = 0; i < count / 2; ++i) {
+        symbols[i].level0 = 1;
+        symbols[i].duration0 = pattern[i * 2];
+        symbols[i].level1 = 0;
+        symbols[i].duration1 = pattern[i * 2 + 1];
+    }
+
+    return transmitSymbols(symbols, sizeof(symbols), "Fan OFF");
+}
+
+
+esp_err_t sendToshibaFix() {
+    if (!isReady()) {
         Serial.println("[IR] Toshiba FIX: not ready");
-        return;
+        return ESP_ERR_INVALID_STATE;
     }
 
     // KhaiRC Android - ToshibaAcEncoder.encodeFix()
@@ -298,7 +340,8 @@ void testToshibaFix() {
     constexpr size_t SYMBOL_COUNT =
         1 + sizeof(frame) * 8 + 1;
 
-    rmt_symbol_word_t symbols[SYMBOL_COUNT] = {};
+    // Static storage remains valid even if the RMT wait returns an error.
+    static rmt_symbol_word_t symbols[SYMBOL_COUNT] = {};
 
     size_t index = 0;
 
@@ -331,30 +374,12 @@ void testToshibaFix() {
     // Stop MARK + terminal SPACE.
     appendSymbol(550, 550);
 
-    rmt_transmit_config_t config = {};
-    config.loop_count = 0;
-    config.flags.eot_level = 0;
-
-    esp_err_t err = rmt_transmit(
-        txChannel,
-        txEncoder,
-        symbols,
-        sizeof(symbols),
-        &config
-    );
-
-    if (err == ESP_OK) {
-        err = rmt_tx_wait_all_done(
-            txChannel,
-            1000
-        );
-    }
-
-    Serial.printf(
-        "[IR] Toshiba FIX: %s\n",
-        esp_err_to_name(err)
-    );
+    return transmitSymbols(symbols, sizeof(symbols), "Toshiba FIX");
 }
 
+// Keep the existing serial diagnostics entry points.
+void testFanHigh() { (void)sendFanHigh(); }
+void testFanSwing() { (void)sendFanSwing(); }
+void testToshibaFix() { (void)sendToshibaFix(); }
 
 } // namespace IrDiagnostics
