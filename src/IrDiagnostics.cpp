@@ -220,6 +220,66 @@ void testFanHigh() {
 
 
 
+void testFanSwing() {
+    if (!initialized || !txChannel || !txEncoder) {
+        Serial.println("[IR] Fan TAIZ SWING: not ready");
+        return;
+    }
+
+    // KhaiRC Android: FanIrCodes.SWING @ 323c201.
+    // Raw microseconds, starting with MARK; includes all 3 captured groups.
+    // Send this entire pattern once, with no extra command repeats.
+    // Keep the Hub's existing 38000 Hz carrier and 0.33 duty cycle.
+    // Android requests 38028 Hz; the raw durations below are unchanged.
+    static constexpr uint16_t pattern[] = {
+        1198, 438, 1194, 438, 418, 1158,
+        1190, 442, 1194, 462, 422, 1154,
+        422, 1174, 426, 1174, 450, 1150,
+        450, 1150, 446, 1154, 1190, 6946,
+
+        1194, 466, 1190, 442, 422, 1174,
+        1194, 466, 1194, 438, 446, 1154,
+        422, 1174, 450, 1150, 422, 1178,
+        446, 1154, 446, 1154, 1190, 6978,
+
+        1194, 466, 1194, 438, 422, 1150,
+        1194, 442, 1166, 466, 422, 1174,
+        426, 1174, 398, 1178, 422, 1174,
+        398, 1178, 422, 1154, 1190, 1000
+    };
+
+    constexpr size_t count = sizeof(pattern) / sizeof(pattern[0]);
+    static_assert(count == 72, "TAIZ SWING must have 72 raw durations");
+
+    static rmt_symbol_word_t symbols[count / 2] = {};
+
+    for (size_t i = 0; i < count / 2; ++i) {
+        symbols[i].level0 = 1;
+        symbols[i].duration0 = pattern[i * 2];
+        symbols[i].level1 = 0;
+        symbols[i].duration1 = pattern[i * 2 + 1];
+    }
+
+    rmt_transmit_config_t config = {};
+    config.loop_count = 0;
+    config.flags.eot_level = 0;
+
+    esp_err_t err = rmt_transmit(
+        txChannel,
+        txEncoder,
+        symbols,
+        sizeof(symbols),
+        &config
+    );
+
+    if (err == ESP_OK) {
+        err = rmt_tx_wait_all_done(txChannel, 1000);
+    }
+
+    Serial.printf("[IR] Fan TAIZ SWING: %s\n", esp_err_to_name(err));
+}
+
+
 void testToshibaFix() {
     if (!initialized || !txChannel || !txEncoder) {
         Serial.println("[IR] Toshiba FIX: not ready");

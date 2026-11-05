@@ -19,29 +19,21 @@ void setup() {
     ApiServer::begin();
     IrDiagnostics::begin();
 
-    Serial.println("[IR TEST] Toshiba FIX ready");
+    Serial.println("[IR TEST] Manual mode: S = TAIZ SWING, F = Toshiba FIX");
+    Serial.println("[IR TEST] No automatic IR transmission at boot");
 }
 
 void loop() {
     WifiService::loop();
     ApiServer::loop();
 
-    // Chi phat FIX 1 lan sau moi lan khoi dong.
-    static bool testSent = false;
-
-    if (!testSent && millis() >= 10000) {
-        testSent = true;
-
-        Serial.println("[IR TEST] Sending Toshiba FIX");
-
-        IrDiagnostics::testToshibaFix();
-    }
-
-    // Thu cong bang 'f' neu ket noi PC.
+    // Manual tests only. CR/LF and unrelated characters are ignored.
     if (Serial.available()) {
         char command = Serial.read();
 
-        if (command == 'f' || command == 'F') {
+        if (command == 's' || command == 'S') {
+            IrDiagnostics::testFanSwing();
+        } else if (command == 'f' || command == 'F') {
             IrDiagnostics::testToshibaFix();
         }
     }

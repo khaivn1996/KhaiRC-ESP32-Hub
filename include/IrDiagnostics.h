@@ -6,5 +6,6 @@ namespace IrDiagnostics {
     void testBurst();
     void testDc();
     void testFanHigh();
+    void testFanSwing();
     void testToshibaFix();
 }
