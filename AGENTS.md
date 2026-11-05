@@ -7,7 +7,7 @@ Sau khi hoàn thành và commit một tính năng, chạy `$docs` để đồng 
 <!-- docs-skill:end -->
 
 ## 1. Bảo mật & Giới hạn quét file (Token & Security Guardrails)
-- **TUYỆT ĐỐI KHÔNG** đọc, in hoặc đưa nội dung `include/secrets.h` vào ngữ cảnh hay lịch sử chat. Khi cần kiểm tra tên macro cấu hình, chỉ đọc nơi sử dụng (`src/WifiService.cpp`, `src/CommandApi.cpp`) hoặc `include/secrets.example.h`.
+- **TUYỆT ĐỐI KHÔNG** đọc, in hoặc đưa nội dung `include/secrets.h`,`include/ota_password.h` vào ngữ cảnh hay lịch sử chat. Khi cần kiểm tra tên macro cấu hình, chỉ đọc nơi sử dụng (`src/WifiService.cpp`, `src/CommandApi.cpp`) hoặc `include/secrets.example.h`,`include/ota_password.example.h`.
 - **KHÔNG** quét hoặc tìm kiếm trong các thư mục sinh tự động: `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`.
 - Khi sửa file `.cpp`/`.h`, hãy đọc toàn bộ file đích từ đầu đến cuối thay vì chỉ đọc một đoạn cắt qua `grep` để tránh bỏ sót biến trạng thái trong anonymous namespace.
 
@@ -27,14 +27,14 @@ Sau khi hoàn thành và commit một tính năng, chạy `$docs` để đồng 
 - **Bảo mật HTTP:** Duy trì xác thực `X-API-Key` bằng vòng lặp XOR constant-time, giới hạn `MAX_BODY_SIZE = 512`, kiểm tra embedded NUL và `NestingLimit(3)` khi parse bằng `ArduinoJson`.
 
 ## 4. Lệnh Toolchain (PlatformIO)
-- Build kiểm tra lỗi biên dịch: `pio run -e esp32-s3-n16r8`
-- Nạp firmware (chỉ chạy khi người dùng yêu cầu): `pio run -e esp32-s3-n16r8 -t upload`
+- Build kiểm tra lỗi biên dịch: `pio run`
+- Nạp firmware (chỉ chạy khi người dùng yêu cầu): `pio run -t upload`
 - Xem Serial log: `pio device monitor -b 115200`
 
 
 ## 5. Quy trình phân vai
 - `$architect <yêu cầu>`: chỉ ghi `docs/PLAN.md`, không sửa mã nguồn. `$reviewer`: chỉ đọc diff và báo cáo.
 - Khi được bảo "thực hiện theo `docs/PLAN.md`": làm đúng từng Step; lệch plan phải nêu lý do, không tự mở rộng phạm vi.
-- Không tự `git commit`/`git push` trừ khi được yêu cầu. Xong việc = `pio run -e esp32-s3-n16r8` build sạch, kèm danh sách bước thử trên mạch người dùng phải tự làm.
+- Không tự `git commit`/`git push` trừ khi được yêu cầu. Xong việc = `pio run` build sạch, kèm danh sách bước thử trên mạch người dùng phải tự làm.
 - Đọc `docs/PROJECT_SPEC.md` theo mục (§0, §8, §9 và module liên quan, xem §12); chỉ đọc cả file khi thay đổi liên module.
 - Build cần `include/secrets.h` cục bộ. Nếu thiếu: dừng và báo, không tự tạo với giá trị thật.

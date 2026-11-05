@@ -9,6 +9,8 @@ const char page[] PROGMEM = R"OTAHTML(<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KhaiRC Hub · Cập nhật firmware</title>
+<!-- Reuse .brand-mark geometry, rounded corners and gradient for the tab icon. -->
+<link rel="icon" type="image/svg+xml" sizes="any" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%22-6%20-5%2042%2042%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22brand%22%20x1%3D%220%25%22%20y1%3D%220%25%22%20x2%3D%220%25%22%20y2%3D%22100%25%22%3E%3Cstop%20stop-color%3D%22%237262ff%22%2F%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%234738ce%22%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Cg%20fill%3D%22url%28%23brand%29%22%3E%3Crect%20width%3D%2211%22%20height%3D%2227%22%20rx%3D%223%22%20transform%3D%22translate%282%204.29707%29%20skewY%28-38%29%22%2F%3E%3Crect%20width%3D%2211%22%20height%3D%2227%22%20rx%3D%223%22%20transform%3D%22translate%2816%209.29707%29%20skewY%28-38%29%22%2F%3E%3C%2Fg%3E%3C%2Fsvg%3E">
 <style>
 :root{color-scheme:light;--ink:#24204f;--muted:#615d83;--accent:#5145e5;--line:rgba(255,255,255,.85)}
 *{box-sizing:border-box}[hidden]{display:none!important}

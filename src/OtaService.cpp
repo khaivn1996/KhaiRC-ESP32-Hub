@@ -331,7 +331,7 @@ void registerRoutes(WebServer& server) {
         serverPtr->sendHeader("X-Frame-Options", "DENY");
         serverPtr->sendHeader("Content-Security-Policy",
             "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-            "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+            "img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
         serverPtr->send_P(200, "text/html; charset=utf-8", OtaPage::html());
     });
     server.on("/api/v1/ota", HTTP_GET, [serverPtr]() {
