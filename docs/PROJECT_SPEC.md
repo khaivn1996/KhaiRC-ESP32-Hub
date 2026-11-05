@@ -1,7 +1,7 @@
 ---
 spec_version: 1
 project: KhaiRC-ESP32-Hub
-last_synced_commit: 5a472348c126e1f04fcd1bfa34d5e9bb2d175fcd
+last_synced_commit: f9f0063b26c7d04a56a1da3feb65a6b723d6f392
 last_synced_at: 2026-11-05
 last_full_scan_commit: 5a472348c126e1f04fcd1bfa34d5e9bb2d175fcd
 ---
@@ -35,7 +35,9 @@ PlatformIO chọn board `esp32-s3-devkitc-1`; tên environment là `esp32-s3-n16
 
 Chỉ GPIO4 được gán tường minh trong ứng dụng. Không có cấu hình RX IR, I2C, SPI, LEDC hay ngoại vi khác. Không thấy ứng dụng gán các chân 0/3/45/46, 19/20 hoặc 26–37; đây không thay thế kiểm tra sơ đồ board.
 
-Nguồn: `platformio.ini`, `src/IrDiagnostics.cpp`, `src/main.cpp`.
+`AGENTS.md` xác định phần cứng mục tiêu ESP32-S3-DevKitC-1 / N16R8, flash 16 MB QIO và PSRAM 8 MB OPI (`qio_opi`). Quy định dự án cấm gán ngoại vi vào GPIO26–37 (flash/PSRAM nội bộ), GPIO0/3/45/46 (strapping) và GPIO19/20 (USB D-/D+); không tự đổi GPIO4 của IR nếu chưa được yêu cầu.
+
+Nguồn: `platformio.ini`, `src/IrDiagnostics.cpp`, `src/main.cpp`, `AGENTS.md`.
 
 ## 2. Toolchain, build, flash, test
 
@@ -48,13 +50,13 @@ Nguồn: `platformio.ini`, `src/IrDiagnostics.cpp`, `src/main.cpp`.
 | Flash / monitor | `upload_speed=115200`, `monitor_speed=115200`; `upload_port` và `monitor_port` chỉ có dòng comment |
 | Partition | `board_build.partitions=default_16MB.csv`; file thuộc framework/toolchain, không nằm trong repo |
 
-Từ thư mục gốc, dùng `pio run`, `pio run -t upload`, `pio device monitor -b 115200`; hai lệnh build/upload dùng `default_envs` đã khai báo. Cần có cấu hình credential cục bộ nêu tại §7. Đây là cách gọi theo cấu hình; lần đồng bộ tài liệu không chạy build, flash hay kiểm thử phần cứng.
+Từ thư mục gốc, dùng `pio run -e esp32-s3-n16r8` để build, `pio run -e esp32-s3-n16r8 -t upload` để nạp và `pio device monitor -b 115200` để xem Serial. Theo `AGENTS.md`, chỉ nạp firmware khi người dùng yêu cầu. Cần có cấu hình credential cục bộ nêu tại §7. Lần đồng bộ tài liệu không chạy build, flash hay kiểm thử phần cứng.
 
 Repo chỉ có README mẫu trong `test/`, không có test thực thi, workflow CI hoặc script build riêng. `include/README` và `lib/README` cũng là hướng dẫn PlatformIO mẫu, không mô tả thiết kế firmware.
 
 Tiện ích `tools/monitor-hub.ps1` chạy trên Windows PowerShell 5.1/PowerShell 7, dùng cmdlet/.NET sẵn có. Lệnh mẫu: `.\tools\monitor-hub.ps1 -HubIP "<IP-hub>" -DurationMinutes 10 -IntervalSeconds 60`. `HubIP` bắt buộc; thời lượng mặc định 10 phút (1–10080), chu kỳ 60 giây (5–3600), timeout 5 giây (1–60). Script gọi GET health rồi system, kiểm tra trường dữ liệu, ghi CSV UTF-8 vào thư mục log bị Git bỏ qua. Các cột là `Time`, `Status`, `UptimeSec`, `FreeHeapBytes`, `RSSIdBm`, `IPAddress`, `Error`; trạng thái `OK`, `ERROR`, `RESET`. `RESET` được suy ra khi uptime giảm, có thể bỏ sót lần khởi động lại giữa hai mẫu. Lịch lấy mẫu theo Stopwatch; cuối lượt in thống kê thành công/lỗi/reset và heap nhỏ/lớn nhất. Script không gửi API key.
 
-Nguồn: `platformio.ini`, `include/README`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `src/IrDiagnostics.cpp`.
+Nguồn: `platformio.ini`, `include/README`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `src/IrDiagnostics.cpp`, `AGENTS.md`.
 
 ## 3. Cấu trúc thư mục & kiến trúc
 
@@ -256,6 +258,8 @@ Nguồn: `platformio.ini`, `.gitignore`, `src/WifiService.cpp`, `src/CommandApi.
 - Response thường ghép `String`; ArduinoJson chỉ parse lệnh. Registry reserve dung lượng trước khi ghép, các khung IR dùng mảng fixed-size/static hoặc local, không có allocator riêng.
 - Firmware version là chuỗi cố định ở startup và health, chưa có nguồn version dùng chung. Catalog có schema version độc lập với firmware version.
 - `AGENTS.md` yêu cầu đọc spec trước khi sửa tính năng và chạy `$docs` sau khi commit. Skill đồng bộ chỉ ghi spec/khối marker, lấy trạng thái đã commit, bỏ qua secret; metadata skill đặt `allow_implicit_invocation: false`.
+- Giới hạn thao tác theo `AGENTS.md`: tuyệt đối không đọc/in nội dung `include/secrets.h`; tra tên macro tại nơi sử dụng. Không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`. Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích để nắm trạng thái nội bộ.
+- Ràng buộc triển khai theo `AGENTS.md`: không dùng thư viện IR bên thứ ba, dùng ESP-IDF RMT TX và buffer `rmt_symbol_word_t` static; mỗi request toggle/stateful chỉ phát một lần, không retry ở driver/HTTP. Duy trì XOR constant-time khi xác thực `X-API-Key`, `MAX_BODY_SIZE=512`, kiểm tra NUL nhúng và `NestingLimit(3)`.
 
 Nguồn: `include/ApiServer.h`, `include/CommandApi.h`, `include/DeviceRegistry.h`, `include/IrDiagnostics.h`, `include/WifiService.h`, `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `AGENTS.md`, `.agents/skills/docs/SKILL.md`, `.agents/skills/docs/agents/openai.yaml`.
 
@@ -265,13 +269,13 @@ Các checklist dưới đây là điểm sửa rút ra từ cấu trúc hiện t
 
 - **Thêm thiết bị/giao thức IR:** khai báo hàm send tại `include/IrDiagnostics.h`, triển khai tại `src/IrDiagnostics.cpp` theo pattern readiness/buffer static/trả lỗi; đăng ký thiết bị và `supported_actions` tại `src/DeviceRegistry.cpp`; nối validation/dispatch trong `src/CommandApi.cpp`, kiểm tra capability trong `src/ApiServer.cpp`; chỉ thêm phím thử thủ công tại `src/main.cpp` nếu cần. Code chưa có registry handler động hay driver AC dùng chung.
 - **Thêm DP Tuya:** chưa có SDK, transport, bảng DP hay handler để mở rộng trực tiếp. Cần xác định tích hợp mới trước; các điểm nối hiện có là dependency trong `platformio.ini`, catalog trong `src/DeviceRegistry.cpp`, lệnh trong `src/CommandApi.cpp`, capability trong `src/ApiServer.cpp` và lifecycle tại `src/main.cpp`. Không suy ra DP từ nhãn `tuya_plug`.
-- **Thêm chân/ngoại vi:** đối chiếu board và `platformio.ini`, chọn vị trí cấu hình tương tự `IR_PIN` trong `src/IrDiagnostics.cpp`, cập nhật header/lifecycle cần thiết và pin map §1; kiểm tra xung đột phần cứng trước thử nghiệm.
+- **Thêm chân/ngoại vi:** đối chiếu board, `AGENTS.md` và `platformio.ini`; tuân thủ danh sách chân cấm tại §1 và không tự đổi GPIO4. Chọn vị trí cấu hình tương tự `IR_PIN` trong `src/IrDiagnostics.cpp`, cập nhật header/lifecycle cần thiết và pin map §1; kiểm tra xung đột phần cứng trước thử nghiệm.
 - **Thêm Kconfig/NVS key:** hiện chưa có cơ chế này. Cấu hình build nằm ở `platformio.ini`; credential theo include cục bộ được `.gitignore` bảo vệ. Nếu bổ sung storage, cần định nghĩa namespace/key, phiên bản và migration trước khi ghi chúng vào §7.
 - **Thêm route/action:** sửa module API liên quan và `include/CommandApi.h` nếu đổi public API; duy trì auth, body limit, kiểm tra NUL nhúng, mã lỗi và xử lý sai method; đồng bộ registry/capabilities với dispatch. Giữ nghĩa `sent`/`state_verified` và không tự phát lại sau lỗi. Có thể cập nhật `tools/monitor-hub.ps1` khi metric health/system đổi.
 
-Sau thay đổi, kiểm tra bằng toolchain/hardware phù hợp (§2); repo chưa có test tự động để dựa vào. Sau khi commit, chạy `$docs` để đồng bộ spec với HEAD mới.
+Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích theo §8. Sau thay đổi, kiểm tra bằng toolchain/hardware phù hợp (§2); chỉ upload khi người dùng yêu cầu, repo chưa có test tự động để dựa vào. Sau khi commit, chạy `$docs` để đồng bộ spec với HEAD mới.
 
-Nguồn: `platformio.ini`, `.gitignore`, `src/main.cpp`, `include/IrDiagnostics.h`, `src/IrDiagnostics.cpp`, `src/DeviceRegistry.cpp`, `include/CommandApi.h`, `src/CommandApi.cpp`, `src/ApiServer.cpp`, `tools/monitor-hub.ps1`, `test/README`.
+Nguồn: `platformio.ini`, `.gitignore`, `src/main.cpp`, `include/IrDiagnostics.h`, `src/IrDiagnostics.cpp`, `src/DeviceRegistry.cpp`, `include/CommandApi.h`, `src/CommandApi.cpp`, `src/ApiServer.cpp`, `tools/monitor-hub.ps1`, `test/README`, `AGENTS.md`.
 
 ## 10. Vấn đề đã biết, TODO, cần xác nhận
 
@@ -290,6 +294,7 @@ Nguồn: `platformio.ini`, `src/main.cpp`, `src/IrDiagnostics.cpp`, `src/DeviceR
 
 - 2026-11-02 FULL @19f655c — tạo đặc tả, kiểm kê đủ 22 file tracked; bắt đầu tại a7240ce, cập nhật thêm tài liệu/skill từ hai commit phát sinh trong lúc quét, firmware không đổi. Metadata IDE chỉ kiểm kê; không đưa cấu hình cục bộ hay thay đổi chưa commit vào đặc tả.
 - 2026-11-05 FULL 19f655c..5a47234 — quét lại 22 file tracked vì thay đổi 4/5 module; cập nhật HTTP IR `0.3.0-ir1`, lệnh quạt/Toshiba, readiness, lỗi phát, Serial thủ công và bỏ tự phát khi boot. Không build/flash; không đọc credential cục bộ.
+- 2026-11-05 INCR 5a47234..f9f0063 — đồng bộ quy định AGENTS về chân cấm, bảo mật/quét file, RMT và an toàn lệnh, lệnh toolchain và điều kiện upload; firmware không đổi.
 
 Nguồn: cây Git và lịch sử commit tại mốc đồng bộ trong front matter.
 
@@ -312,7 +317,7 @@ Mỗi file trong 22 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `.vscode/**` | §3 | Metadata IDE; bỏ qua trong bộ lọc đồng bộ |
 | `.agents/skills/docs/**` | §3, §8, §9 | Skill và metadata điều khiển đồng bộ đặc tả |
 | `docs/PROJECT_SPEC.md` | §0–§12 | Spec tự quản lý; bỏ qua diff đầu vào |
-| `AGENTS.md` | §8, §9 | Khối hướng dẫn đọc/đồng bộ spec |
+| `AGENTS.md` | §1, §2, §8, §9 | Hướng dẫn đồng bộ, giới hạn quét, phần cứng, kiến trúc và an toàn lệnh |
 
 Các tên `include/secrets.h`, `logs/`, mẫu CSV log và `default_16MB.csv` ở §2/§7 là cấu hình cục bộ/đầu ra runtime/tài nguyên framework, không phải đường dẫn nguồn được track. Không có thư mục `docs/spec/` hoặc spec module tách riêng tại lần quét này.
 
