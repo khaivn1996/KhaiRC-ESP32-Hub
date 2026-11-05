@@ -11,7 +11,7 @@ void setup() {
     Serial.println();
     Serial.println("======================");
     Serial.println(" KhaiRC ESP32 Hub");
-    Serial.println(" Firmware v0.3.0-ir1");
+    Serial.println(" Firmware v0.4.0-ota1");
     Serial.println("======================");
 
     WifiService::begin();

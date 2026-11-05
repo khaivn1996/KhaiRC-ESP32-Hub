@@ -1,9 +1,11 @@
 #include "CommandApi.h"
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
+#include "OtaService.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <esp_random.h>
 
 #include "WifiService.h"
 #include "ApiServer.h"
@@ -11,17 +13,29 @@
 namespace {
     WebServer server(80);
     bool serverRunning = false;
+    uint32_t bootId = 0;
 }
 
 namespace ApiServer {
 
 void begin() {
 
+    bootId = esp_random();
+
+    static const char* headerKeys[] = {
+        "X-API-Key", "Content-Type", "X-OTA-Password",
+        "Content-Length", "Transfer-Encoding"
+    };
+    server.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(headerKeys[0]));
+
     server.on("/api/v1/health", HTTP_GET, []() {
         String json = "{";
         json += "\"status\":\"ok\",";
         json += "\"device\":\"KhaiRC-ESP32-Hub\",";
-        json += "\"firmware\":\"0.3.0-ir1\",";
+        json += "\"firmware\":\"0.4.0-ota1\",";
+        json += "\"boot_id\":\"";
+        json += String(bootId, HEX);
+        json += "\",";
         json += "\"uptime_sec\":";
         json += String(millis() / 1000);
         json += ",\"free_heap\":";
@@ -59,7 +73,9 @@ void begin() {
     server.on("/api/v1/capabilities", HTTP_GET, []() {
         String json = "{\"schema_version\":1,\"capabilities\":{\"ir_send\":";
         json += IrDiagnostics::isReady() ? "true" : "false";
-        json += ",\"tuya_control\":false,\"cloud_access\":false}}";
+        json += ",\"tuya_control\":false,\"cloud_access\":false,\"ota_update\":";
+        json += OtaService::available() ? "true" : "false";
+        json += "}}";
         server.send(
             200,
             "application/json",
@@ -68,9 +84,16 @@ void begin() {
     });
 
     CommandApi::registerRoutes(server);
+    OtaService::registerRoutes(server);
 
     server.onNotFound([]() {
         String path = server.uri();
+
+        if (path == "/" || path == "/update" || path == "/api/v1/ota") {
+            server.sendHeader("Allow", path == "/update" ? "GET, POST" : "GET");
+            server.send(405, "application/json", "{\"error\":{\"code\":\"method_not_allowed\"}}");
+            return;
+        }
         
         if (path == "/api/v1/commands") {
             server.sendHeader("Allow", "POST");
@@ -141,6 +164,12 @@ void begin() {
 }
 
 void loop() {
+
+    // Also services a scheduled reboot if Wi-Fi drops after a successful OTA.
+    OtaService::loop();
+    if (OtaService::rebootPending()) {
+        return;
+    }
 
     if (!WifiService::connected()) {
         if (serverRunning) {

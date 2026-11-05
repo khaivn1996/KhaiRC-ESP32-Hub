@@ -187,14 +187,7 @@ namespace CommandApi {
 
 void registerRoutes(WebServer& server) {
 
-    // Collect request headers required by the API.
-    static const char* headerKeys[] = {
-        "X-API-Key",
-        "Content-Type"
-    };
-
-    server.collectHeaders(headerKeys, 2);
-
+    // ApiServer collects the headers shared by commands and OTA.
     WebServer* serverPtr = &server;
 
     server.on(

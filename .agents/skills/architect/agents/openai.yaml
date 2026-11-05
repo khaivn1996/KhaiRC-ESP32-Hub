@@ -1,0 +1,7 @@
+interface:
+  display_name: "Architect"
+  short_description: "Lập kế hoạch thiết kế vào docs/PLAN.md, không sửa code"
+  default_prompt: "Dùng $architect để lập kế hoạch cho yêu cầu sau và ghi vào docs/PLAN.md:"
+
+policy:
+  allow_implicit_invocation: false

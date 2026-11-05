@@ -5,4 +5,5 @@
 .vscode/ipch
 # Local secrets
 /include/secrets.h
+/include/ota_password.h
 /logs/
