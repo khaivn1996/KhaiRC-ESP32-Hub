@@ -1,8 +1,8 @@
 ---
 spec_version: 1
 project: KhaiRC-ESP32-Hub
-last_synced_commit: 703392f9990ec3b7f3928fcdb3ba837c8bbe897b
-last_synced_at: 2026-11-05
+last_synced_commit: 21fe217612de1e7f3f36fd138b8ea6e14311d7ca
+last_synced_at: 2026-11-06
 last_full_scan_commit: af15f65f5925459af33332c1623db20488afa0b4
 ---
 
@@ -50,31 +50,34 @@ Nguồn: `platformio.ini`, `src/IrDiagnostics.cpp`, `src/main.cpp`, `AGENTS.md`.
 | Flash / monitor | `upload_speed=115200`, `monitor_speed=115200`; `upload_port` và `monitor_port` chỉ có dòng comment |
 | Partition | `board_build.partitions=default_16MB.csv`; file thuộc framework/toolchain, không nằm trong repo |
 
-Từ thư mục gốc, dùng `pio run` để build, `pio run -t upload` để nạp và `pio device monitor -b 115200` để xem Serial, theo lệnh trong `AGENTS.md`. Hai lệnh PlatformIO dùng default environment `esp32-s3-n16r8`; có thể chọn tường minh bằng `-e esp32-s3-n16r8`. Chỉ nạp firmware khi người dùng yêu cầu. Cần có cấu hình credential cục bộ nêu tại §7. Lần đồng bộ tài liệu không chạy build, flash hay kiểm thử phần cứng.
+Từ thư mục gốc, build trên PowerShell bằng `pio run *> .pio/build.log; Get-Content .pio/build.log -Tail 25`; nếu lỗi, dùng `Select-String .pio/build.log -Pattern 'error' | Select-Object -First 15`, không in cả log. Nếu `pio` không có trong PATH, gọi bằng `& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe"`. Dùng `pio run -t upload` để nạp và `pio device monitor -b 115200` để xem Serial. PlatformIO dùng default environment `esp32-s3-n16r8`; có thể chọn tường minh bằng `-e esp32-s3-n16r8`. Chỉ nạp firmware khi người dùng yêu cầu; không tự chạy monitor chặn vô hạn, nhờ người dùng dán log. Cùng một lỗi build/test sửa quá 2 lần chưa xong thì dừng, đọc lại lỗi gốc và báo cáo. Cần có cấu hình credential cục bộ nêu tại §7. Lần đồng bộ tài liệu không chạy build, flash hay kiểm thử phần cứng.
 
 Có test OTA host: `python tools/test-ota.py --cxx <g++>` chạy 32 kịch bản trên module thật với HTTP/flash giả lập, không đọc credential cục bộ. Test trang: cài Playwright, chạy `python tools/test-ota-page.py --browser <chrome-hoac-msedge>`; 18 kịch bản mạng giả lập tại desktop 1440 px/mobile 390 px; tùy chọn `--screenshots <thu-muc>`. Chưa có CI được track. `lib/README`, `test/README` là mẫu PlatformIO. Không chạy test trong lần sync này. Nguồn: `tools/test-ota.py`, `tools/test-ota-page.py`, `test/ota_host/test_ota.cpp`, `docs/OTA.md`.
 
 Tiện ích `tools/monitor-hub.ps1` chạy trên Windows PowerShell 5.1/PowerShell 7, dùng cmdlet/.NET sẵn có. Lệnh mẫu: `.\tools\monitor-hub.ps1 -HubIP "<IP-hub>" -DurationMinutes 10 -IntervalSeconds 60`. `HubIP` bắt buộc; thời lượng mặc định 10 phút (1–10080), chu kỳ 60 giây (5–3600), timeout 5 giây (1–60). Script gọi GET health rồi system, kiểm tra trường dữ liệu, ghi CSV UTF-8 vào thư mục log bị Git bỏ qua. Các cột là `Time`, `Status`, `UptimeSec`, `FreeHeapBytes`, `RSSIdBm`, `IPAddress`, `Error`; trạng thái `OK`, `ERROR`, `RESET`. `RESET` được suy ra khi uptime giảm, có thể bỏ sót lần khởi động lại giữa hai mẫu. Lịch lấy mẫu theo Stopwatch; cuối lượt in thống kê thành công/lỗi/reset và heap nhỏ/lớn nhất. Script không gửi API key.
 
-Nguồn: `platformio.ini`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `src/IrDiagnostics.cpp`, `AGENTS.md`.
+Tiện ích chỉ đọc `tools/spec.py` cần Python 3.7+: chạy `python tools/spec.py` để in mục lục kèm dung lượng UTF-8; truyền số mục, mục con hoặc từ khóa tiêu đề để đọc chọn lọc, ví dụ `python tools/spec.py 0 8 9 5.5`. Mục cấp 2 gồm mục con, các vùng trùng nhau chỉ in một lần theo thứ tự tài liệu; thiếu spec trả mã 1, không tìm thấy mục trả mã 2.
+
+Nguồn: `platformio.ini`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `tools/spec.py`, `src/IrDiagnostics.cpp`, `AGENTS.md`.
 
 ## 3. Cấu trúc thư mục & kiến trúc
 
-HEAD có 39 file tracked: src 8 cpp, include 9 header, test 6 file, tools 3 file, .agents 6 file, docs 2 file, lib 1 README, 1 metadata IDE và 3 file gốc. Metadata IDE chỉ được kiểm kê tên, không đọc nội dung; không quét thư mục sinh tự động.
+HEAD có 44 file tracked: src 8 cpp, include 9 header, test 6 file, tools 4 file, .agents 10 file, docs 2 file, lib 1 README, 1 metadata IDE và 3 file gốc. Metadata IDE chỉ được kiểm kê tên, không đọc nội dung; không quét thư mục sinh tự động.
 
 | Vị trí | Vai trò |
 |---|---|
 | `src/main.cpp` | Điểm vào Arduino, gọi vòng lặp dịch vụ và nhận phím thử IR thủ công |
 | `src/`, `include/` | Bảy module: Wi-Fi, API server, command API, device registry, IR diagnostics, OTA service, OTA page |
 | `tools/monitor-hub.ps1` | Tiện ích PowerShell thăm dò HTTP health/system và lưu CSV |
+| `tools/spec.py`, `tools/test-ota*.py` | Đọc chọn lọc spec và chạy test OTA host/trang |
 | `lib/`, `test/` | README mẫu và test OTA host; chưa có thư viện nội bộ |
 | `platformio.ini` | Board, framework, flags, dependency |
-| `.gitignore` | Loại build output, cấu hình IDE, credential cục bộ và log khỏi Git |
-| `.agents/skills/docs/`, `AGENTS.md`, `docs/PROJECT_SPEC.md` | Skill đồng bộ, hướng dẫn agent và đặc tả dự án |
+| `.gitignore` | Loại build output, cấu hình IDE, credential cục bộ, log và file làm việc `docs/PLAN.md` khỏi Git |
+| `.agents/skills/**`, `AGENTS.md`, `docs/PROJECT_SPEC.md` | Năm skill `architect`, `implement`, `reviewer`, `debugger`, `docs`, hướng dẫn agent và đặc tả dự án |
 
 Luồng phụ thuộc: `main → WifiService, DeviceRegistry, ApiServer, IrDiagnostics`; `ApiServer → WifiService, DeviceRegistry, CommandApi, IrDiagnostics`; `CommandApi → DeviceRegistry, IrDiagnostics, ArduinoJson`; `DeviceRegistry → IrDiagnostics`; `IrDiagnostics → GPIO/RMT`. HTTP commands và Serial dùng chung các hàm phát IR. `ApiServer → OtaService → OtaPage, esp_ota_*`. Nguồn OTA: `src/OtaService.cpp`, `src/OtaPage.cpp`.
 
-Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `platformio.ini`, `.gitignore`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `.agents/skills/docs/SKILL.md`, `AGENTS.md`.
+Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `platformio.ini`, `.gitignore`, `lib/README`, `test/README`, `tools/monitor-hub.ps1`, `tools/spec.py`, `.agents/skills/**`, `AGENTS.md`.
 
 ## 4. Luồng khởi động & runtime
 
@@ -296,11 +299,13 @@ Nguồn: `platformio.ini`, `.gitignore`, `src/WifiService.cpp`, `src/CommandApi.
 - Các hàm send trả `esp_err_t`, dùng buffer static và helper chung; lỗi phát làm driver không sẵn sàng, không tự thử lại. Các diagnostics GPIO/burst không dùng helper này.
 - Response thường ghép `String`; ArduinoJson chỉ parse lệnh. Registry reserve dung lượng trước khi ghép, các khung IR dùng mảng fixed-size/static hoặc local, không có allocator riêng.
 - Firmware version là chuỗi cố định ở startup và health, chưa có nguồn version dùng chung. Catalog có schema version độc lập với firmware version.
-- `AGENTS.md` yêu cầu đọc spec trước khi sửa tính năng và chạy `$docs` sau khi commit. Skill đồng bộ chỉ ghi spec/khối marker, lấy trạng thái đã commit, bỏ qua secret; metadata skill đặt `allow_implicit_invocation: false`.
-- Giới hạn thao tác theo `AGENTS.md`: tuyệt đối không đọc/in nội dung `include/secrets.h` hoặc `include/ota_password.h`; tra tên macro tại nơi sử dụng hoặc template `include/secrets.example.h`, `include/ota_password.example.h`. Không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`. Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích để nắm trạng thái nội bộ.
+- `AGENTS.md` yêu cầu đọc spec theo mục bằng `tools/spec.py`: luôn đọc §0 và §8, thêm §9 khi thêm tính năng, rồi mục module/§6 liên quan theo §12; chạy `$docs` sau khi commit. Skill đồng bộ chỉ ghi spec/khối marker, lấy trạng thái đã commit, bỏ qua secret; cả năm skill có metadata `allow_implicit_invocation: false`.
+- Giới hạn thao tác theo `AGENTS.md`: tuyệt đối không đọc/in nội dung `include/secrets.h` hoặc `include/ota_password.h`; tra tên macro tại nơi sử dụng hoặc template `include/secrets.example.h`, `include/ota_password.example.h`. Không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`; ngoại lệ chỉ đọc đúng `.pio/build.log` theo §2. Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích để nắm trạng thái nội bộ; riêng `src/OtaPage.cpp` đọc C++ đầu/cuối, chỉ đọc đoạn HTML trong `R"OTAHTML(` liên quan khi sửa giao diện.
 - Ràng buộc triển khai theo `AGENTS.md`: không dùng thư viện IR bên thứ ba, dùng ESP-IDF RMT TX và buffer `rmt_symbol_word_t` static; mỗi request toggle/stateful chỉ phát một lần, không retry ở driver/HTTP. Duy trì XOR constant-time khi xác thực `X-API-Key`, `MAX_BODY_SIZE=512`, kiểm tra NUL nhúng và `NestingLimit(3)`.
 
-Nguồn: `include/ApiServer.h`, `include/CommandApi.h`, `include/DeviceRegistry.h`, `include/IrDiagnostics.h`, `include/WifiService.h`, `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `AGENTS.md`, `.agents/skills/docs/SKILL.md`, `.agents/skills/docs/agents/openai.yaml`.
+- Quy định OTA trong `AGENTS.md`: xác thực mật khẩu → đọc prefix → ghi → xác minh → chọn boot → reboot; xác thực trước khi xóa/ghi flash, thiếu/rỗng mật khẩu thì khóa OTA, chỉ dùng `esp_ota_*`. Giới hạn 4 MiB, không multipart/chunked, không retry upload; mật khẩu không vào URL/localStorage/cookie. Đổi OTA phải cập nhật `docs/OTA.md` và test liên quan.
+
+Nguồn: `include/ApiServer.h`, `include/CommandApi.h`, `include/DeviceRegistry.h`, `include/IrDiagnostics.h`, `include/WifiService.h`, `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `AGENTS.md`, `tools/spec.py`, `.agents/skills/**/agents/openai.yaml`.
 
 ## 9. Cách thêm tính năng mới
 
@@ -316,9 +321,15 @@ Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích theo §8. Sau thay
 
 Nguồn: `platformio.ini`, `.gitignore`, `src/main.cpp`, `include/IrDiagnostics.h`, `src/IrDiagnostics.cpp`, `src/DeviceRegistry.cpp`, `include/CommandApi.h`, `src/CommandApi.cpp`, `src/ApiServer.cpp`, `tools/monitor-hub.ps1`, `test/README`, `AGENTS.md`.
 
-Quy trình bổ sung: `$architect` chỉ ghi kế hoạch, `$reviewer` chỉ đọc diff/báo cáo. Làm đúng từng Step khi được giao plan, nêu lý do lệch; không tự commit/push. Sửa OTA cần giữ auth → prefix → write → verify → chọn boot → reboot, đồng bộ host/page tests và hướng dẫn OTA; chỉ retry GET health. Trên board cần thử sai mật khẩu, upload hợp lệ, boot ID đổi, IR sau reboot và cập nhật cả hai chiều phân vùng.
+Quy trình phân vai, mỗi vai một chat riêng:
 
-Nguồn: `AGENTS.md`, `.agents/skills/architect/SKILL.md`, `.agents/skills/reviewer/SKILL.md`, `.agents/skills/architect/agents/openai.yaml`, `.agents/skills/reviewer/agents/openai.yaml`, `src/OtaService.cpp`, `docs/OTA.md`.
+- `$architect <yêu cầu>` chỉ ghi `docs/PLAN.md` (bị Git bỏ qua), khoảng tối đa 150 dòng; xác minh tên trong code, nêu thiết kế, Step với tiêu chí/lệnh kiểm, thử trên mạch và câu hỏi mở. Không bắt đầu code.
+- `$implement [Step]` làm các Step còn lại hoặc phạm vi như `2`, `2-3`; cần có plan và giải quyết câu hỏi mở trước. Chỉ sửa file trong Step cộng include/header bắt buộc; cần ra ngoài plan thì dừng hỏi. Build/test sau mỗi Step, pass mới tick `[x]` và ghi kết quả; dừng khi cần thử trên mạch/quyết định ngoài plan. Phát hiện ngoài phạm vi ghi ở cuối plan; kết thúc gợi ý `$reviewer` ở chat mới.
+- `$reviewer` không sửa file; review phạm vi được chỉ định, mặc định diff chưa commit, cây sạch thì commit gần nhất. Đối chiếu plan nếu có, kiểm tra bất biến, luôn build và báo RAM/Flash; chạy test host khi đụng OTA, thêm test trang khi đổi giao diện. Báo rõ kiểm chứng chưa chạy và phân biệt phát hiện chắc chắn/nghi ngờ.
+- `$debugger` mặc định chỉ chẩn đoán từ triệu chứng, cách tái hiện, log và phiên bản/cách nạp; tối đa ba giả thuyết có thí nghiệm xác nhận. Không tự chạy Serial monitor; chỉ sửa khi người dùng nói rõ áp dụng, log tạm cần đồng ý và ghi lại để gỡ.
+- Không tự commit/push/upload. Hoàn thành triển khai cần build sạch, test host liên quan pass và danh sách thử trên mạch; sau commit chạy `$docs`. Sửa OTA cần giữ auth → prefix → write → verify → chọn boot → reboot, đồng bộ host/page tests và hướng dẫn OTA; chỉ retry GET health. Trên board cần thử sai mật khẩu, upload hợp lệ, boot ID đổi, IR sau reboot và cập nhật cả hai chiều phân vùng.
+
+Nguồn: `AGENTS.md`, `.gitignore`, `.agents/skills/architect/SKILL.md`, `.agents/skills/implement/SKILL.md`, `.agents/skills/reviewer/SKILL.md`, `.agents/skills/debugger/SKILL.md`, `src/OtaService.cpp`, `docs/OTA.md`.
 
 ## 10. Vấn đề đã biết, TODO, cần xác nhận
 
@@ -346,12 +357,13 @@ Nguồn: `docs/OTA.md`, `src/OtaService.cpp`.
 
 - 2026-11-05 FULL f9f0063..af15f65 — quét 39 file vì chạm 3/5 module cũ; OTA, test, toolchain ghim, template credential, phần cứng và quy trình agent. Không build/flash.
 - 2026-11-05 INCR af15f65..703392f — favicon SVG từ brand-mark, CSP cho data image; đồng bộ lệnh PlatformIO mặc định và cấm đọc credential OTA trong AGENTS. Không build/flash.
+- 2026-11-06 INCR 703392f..21fe217 — cập nhật §2, §3, §8, §9, §12: đọc spec theo mục bằng `tools/spec.py`, quy trình năm vai, plan bị Git bỏ qua, giới hạn đọc/build/test và bất biến OTA; kiểm kê 44 file. Firmware không đổi; không build/flash.
 
 Nguồn: cây Git và lịch sử commit tại mốc đồng bộ trong front matter.
 
 ## 12. Bản đồ file → mục
 
-Mỗi file trong 39 file tracked tại mốc đồng bộ thuộc một dòng dưới đây. Bảy module chức năng là §5.1–§5.7; thay đổi phần dùng chung cần xét thêm các mục liên quan.
+Mỗi file trong 44 file tracked tại mốc đồng bộ thuộc một dòng dưới đây. Bảy module chức năng là §5.1–§5.7; thay đổi phần dùng chung cần xét thêm các mục liên quan.
 
 | Glob | Mục | Ghi chú |
 |---|---|---|
@@ -365,8 +377,8 @@ Mỗi file trong 39 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `.gitignore` | §2, §3, §7, §9, §10 | File sinh ra, credential và log |
 | `.vscode/**` | §3 | Chỉ kiểm kê tên metadata IDE, không đọc nội dung |
 | `lib/README`, `test/README` | §2, §3, §10 | README mẫu |
-| `tools/**` | §2, §3, §7, §9 | Monitor HTTP trên máy phát triển |
-| `.agents/skills/**` | §3, §8, §9 | Skill và metadata điều khiển đồng bộ đặc tả |
+| `tools/**` | §2, §3, §7–§9 | Monitor HTTP, đọc spec theo mục, test OTA host/trang |
+| `.agents/skills/**` | §3, §8, §9 | Năm skill phân vai và metadata gọi tường minh |
 | `docs/PROJECT_SPEC.md` | §0–§12 | Spec tự quản lý; bỏ qua diff đầu vào |
 | `include/OtaService.h`, `src/OtaService.cpp` | §4, §5.6, §6.4, §7–§10 | OTA stream |
 | `include/OtaPage.h`, `src/OtaPage.cpp` | §5.7, §6.4 | Trang OTA nhúng |
@@ -375,6 +387,6 @@ Mỗi file trong 39 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `docs/OTA.md` | §2, §6.4, §7, §9–§10 | Hướng dẫn OTA |
 | `AGENTS.md` | §1, §2, §8, §9 | Hướng dẫn đồng bộ, giới hạn quét, phần cứng, kiến trúc và an toàn lệnh |
 
-Các tên `include/secrets.h`, `logs/`, mẫu CSV log và `default_16MB.csv` ở §2/§7 là cấu hình cục bộ/đầu ra runtime/tài nguyên framework, không phải đường dẫn nguồn được track. Không có thư mục `docs/spec/` hoặc spec module tách riêng tại lần quét này.
+Các tên `include/secrets.h`, `include/ota_password.h`, `.pio/build.log`, `logs/`, mẫu CSV log và `default_16MB.csv` là cấu hình cục bộ/đầu ra runtime/tài nguyên framework, không phải đường dẫn nguồn được track. `docs/PLAN.md` là file làm việc bị Git bỏ qua. Không có thư mục `docs/spec/` hoặc spec module tách riêng tại lần quét này.
 
 Nguồn: danh sách `git ls-files` tại mốc đồng bộ; `platformio.ini`, `.gitignore`.
