@@ -1,6 +1,6 @@
 interface:
   display_name: "Reviewer"
-  short_description: "Review diff, đối chiếu PLAN.md, báo lỗi theo mức độ, không sửa code"
+  short_description: "Review diff, đối chiếu PLAN.md, chạy build/test, báo lỗi theo mức độ"
   default_prompt: "Dùng $reviewer để review thay đổi hiện tại:"
 
 policy:

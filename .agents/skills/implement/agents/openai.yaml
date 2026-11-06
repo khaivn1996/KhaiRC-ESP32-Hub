@@ -1,0 +1,7 @@
+interface:
+  display_name: "Implement"
+  short_description: "Code theo docs/PLAN.md từng Step, build/test và tick tiến độ"
+  default_prompt: "Dùng $implement để thực hiện docs/PLAN.md:"
+
+policy:
+  allow_implicit_invocation: false

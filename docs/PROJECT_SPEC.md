@@ -1,7 +1,7 @@
 ---
 spec_version: 1
 project: KhaiRC-ESP32-Hub
-last_synced_commit: af15f65f5925459af33332c1623db20488afa0b4
+last_synced_commit: 703392f9990ec3b7f3928fcdb3ba837c8bbe897b
 last_synced_at: 2026-11-05
 last_full_scan_commit: af15f65f5925459af33332c1623db20488afa0b4
 ---
@@ -50,7 +50,7 @@ Nguồn: `platformio.ini`, `src/IrDiagnostics.cpp`, `src/main.cpp`, `AGENTS.md`.
 | Flash / monitor | `upload_speed=115200`, `monitor_speed=115200`; `upload_port` và `monitor_port` chỉ có dòng comment |
 | Partition | `board_build.partitions=default_16MB.csv`; file thuộc framework/toolchain, không nằm trong repo |
 
-Từ thư mục gốc, dùng `pio run -e esp32-s3-n16r8` để build, `pio run -e esp32-s3-n16r8 -t upload` để nạp và `pio device monitor -b 115200` để xem Serial. Theo `AGENTS.md`, chỉ nạp firmware khi người dùng yêu cầu. Cần có cấu hình credential cục bộ nêu tại §7. Lần đồng bộ tài liệu không chạy build, flash hay kiểm thử phần cứng.
+Từ thư mục gốc, dùng `pio run` để build, `pio run -t upload` để nạp và `pio device monitor -b 115200` để xem Serial, theo lệnh trong `AGENTS.md`. Hai lệnh PlatformIO dùng default environment `esp32-s3-n16r8`; có thể chọn tường minh bằng `-e esp32-s3-n16r8`. Chỉ nạp firmware khi người dùng yêu cầu. Cần có cấu hình credential cục bộ nêu tại §7. Lần đồng bộ tài liệu không chạy build, flash hay kiểm thử phần cứng.
 
 Có test OTA host: `python tools/test-ota.py --cxx <g++>` chạy 32 kịch bản trên module thật với HTTP/flash giả lập, không đọc credential cục bộ. Test trang: cài Playwright, chạy `python tools/test-ota-page.py --browser <chrome-hoac-msedge>`; 18 kịch bản mạng giả lập tại desktop 1440 px/mobile 390 px; tùy chọn `--screenshots <thu-muc>`. Chưa có CI được track. `lib/README`, `test/README` là mẫu PlatformIO. Không chạy test trong lần sync này. Nguồn: `tools/test-ota.py`, `tools/test-ota-page.py`, `test/ota_host/test_ota.cpp`, `docs/OTA.md`.
 
@@ -188,6 +188,7 @@ Nguồn: `include/OtaService.h`, `src/OtaService.cpp`, `src/ApiServer.cpp`.
 
 - API: `const char* OtaPage::html();`; HTML/CSS/JavaScript/SVG nhúng PROGMEM, font hệ thống, không CDN/filesystem.
 - Giao diện tiếng Việt, hai cột desktop/một cột mobile, hiển thị version/file/dung lượng/tiến trình và trạng thái.
+- Favicon SVG nhúng bằng data URI trong thẻ `link rel="icon"`, chuyển hình học hai thanh bo góc/nghiêng và gradient của `.brand-mark` sang SVG; không cần file ảnh hoặc route riêng. CSP của trang cho phép `img-src data:`.
 - Kiểm tra `.bin` không rỗng ≤4 MiB và mật khẩu; GET OTA kiểm tra auth/giới hạn, GET health lấy boot ID rồi XHR POST một lần, timeout 150 giây.
 - Sau upload, tối đa 20 GET health cách nhau 2 giây, mỗi GET timeout 5 giây. Chỉ báo thành công khi boot ID đổi; không tự gửi lại firmware.
 - Xóa ô mật khẩu sau lượt gửi trong finally, không cookie/localStorage; khóa gửi trùng khi busy.
@@ -261,7 +262,7 @@ Nguồn: `src/WifiService.cpp`, `src/ApiServer.cpp`, `src/main.cpp`, `platformio
 | Method / route | Contract |
 |---|---|
 | GET `/` | 302, Location `/update` |
-| GET `/update` | HTML công khai; no-store/nosniff/frame DENY; CSP cho inline script/style, kết nối cùng origin |
+| GET `/update` | HTML công khai; no-store/nosniff/frame DENY; CSP cho inline script/style, `img-src data:` cho favicon nhúng, kết nối cùng origin |
 | GET `/api/v1/ota` | `X-OTA-Password`; trả `max_firmware_bytes` = min(4 MiB, kích thước vùng đích) |
 | POST `/update` | Mật khẩu OTA, `application/octet-stream`, Content-Length thập phân bắt buộc; không multipart/Transfer-Encoding; 200 `status:updated`, `rebooting:true` sau verify/chọn boot |
 
@@ -296,7 +297,7 @@ Nguồn: `platformio.ini`, `.gitignore`, `src/WifiService.cpp`, `src/CommandApi.
 - Response thường ghép `String`; ArduinoJson chỉ parse lệnh. Registry reserve dung lượng trước khi ghép, các khung IR dùng mảng fixed-size/static hoặc local, không có allocator riêng.
 - Firmware version là chuỗi cố định ở startup và health, chưa có nguồn version dùng chung. Catalog có schema version độc lập với firmware version.
 - `AGENTS.md` yêu cầu đọc spec trước khi sửa tính năng và chạy `$docs` sau khi commit. Skill đồng bộ chỉ ghi spec/khối marker, lấy trạng thái đã commit, bỏ qua secret; metadata skill đặt `allow_implicit_invocation: false`.
-- Giới hạn thao tác theo `AGENTS.md`: tuyệt đối không đọc/in nội dung `include/secrets.h`; tra tên macro tại nơi sử dụng. Không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`. Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích để nắm trạng thái nội bộ.
+- Giới hạn thao tác theo `AGENTS.md`: tuyệt đối không đọc/in nội dung `include/secrets.h` hoặc `include/ota_password.h`; tra tên macro tại nơi sử dụng hoặc template `include/secrets.example.h`, `include/ota_password.example.h`. Không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`. Trước khi sửa `.cpp`/`.h`, đọc toàn bộ file đích để nắm trạng thái nội bộ.
 - Ràng buộc triển khai theo `AGENTS.md`: không dùng thư viện IR bên thứ ba, dùng ESP-IDF RMT TX và buffer `rmt_symbol_word_t` static; mỗi request toggle/stateful chỉ phát một lần, không retry ở driver/HTTP. Duy trì XOR constant-time khi xác thực `X-API-Key`, `MAX_BODY_SIZE=512`, kiểm tra NUL nhúng và `NestingLimit(3)`.
 
 Nguồn: `include/ApiServer.h`, `include/CommandApi.h`, `include/DeviceRegistry.h`, `include/IrDiagnostics.h`, `include/WifiService.h`, `src/main.cpp`, `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/WifiService.cpp`, `AGENTS.md`, `.agents/skills/docs/SKILL.md`, `.agents/skills/docs/agents/openai.yaml`.
@@ -344,6 +345,7 @@ Nguồn: `docs/OTA.md`, `src/OtaService.cpp`.
 - 2026-11-05 INCR 5a47234..f9f0063 — đồng bộ quy định AGENTS về chân cấm, bảo mật/quét file, RMT và an toàn lệnh, lệnh toolchain và điều kiện upload; firmware không đổi.
 
 - 2026-11-05 FULL f9f0063..af15f65 — quét 39 file vì chạm 3/5 module cũ; OTA, test, toolchain ghim, template credential, phần cứng và quy trình agent. Không build/flash.
+- 2026-11-05 INCR af15f65..703392f — favicon SVG từ brand-mark, CSP cho data image; đồng bộ lệnh PlatformIO mặc định và cấm đọc credential OTA trong AGENTS. Không build/flash.
 
 Nguồn: cây Git và lịch sử commit tại mốc đồng bộ trong front matter.
 
