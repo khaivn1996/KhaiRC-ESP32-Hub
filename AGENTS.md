@@ -40,3 +40,23 @@ Sau khi hoàn thành và commit một tính năng, chạy `$docs` để đồng 
 - Đọc `docs/PROJECT_SPEC.md` theo mục, không đọc cả file (~40 KB): `python tools/spec.py` in mục lục; `python tools/spec.py 0 8 9 5.5` in các mục cần. Luôn đọc §0 và §8; thêm §9 khi thêm tính năng; thêm module/§6 liên quan (bản đồ file → mục ở §12).
 - Không tự `git commit`/`git push`/upload. Xong việc = build sạch + test host liên quan pass + liệt kê các bước người dùng phải thử trên mạch.
 - Build cần `include/secrets.h` cục bộ (và `include/ota_password.h` nếu bật OTA). Thiếu thì dừng và báo, không tự tạo với giá trị thật.
+
+
+## 6. Context7 MCP — Tra cứu tài liệu kỹ thuật
+- Sử dụng Context7 MCP khi cần tra cứu API, cú pháp, ví dụ sử dụng thư viện, hoặc xử lý lỗi liên quan đến phiên bản framework/SDK.
+- Trước khi tra cứu, kiểm tra `platformio.ini`, dependency và source code liên quan để xác định phiên bản thực tế đang dùng.
+- Ưu tiên tài liệu tương thích với phiên bản đã cài đặt, không mặc định sử dụng API mới nhất.
+- Không gọi Context7 cho những thay đổi nội bộ đơn giản hoặc khi thông tin đã có đầy đủ trong repository.
+- Tài liệu Context7 chỉ mang tính tham khảo; các ràng buộc phần cứng, kiến trúc, bảo mật, OTA và quy trình test trong AGENTS.md và PROJECT_SPEC.md được ưu tiên.
+- Không tự nâng cấp dependency, thay thư viện, đổi GPIO hoặc thay đổi cơ chế OTA chỉ vì tài liệu mới đề xuất cách khác.
+- Tuyệt đối không gửi secret, token, mật khẩu, nội dung file nhạy cảm hoặc mã nguồn riêng tư vào truy vấn Context7.
+- Nếu tài liệu Context7 thiếu, cũ hoặc không khớp với code đang dùng, đối chiếu tài liệu chính thức và headers của SDK đã cài; không suy đoán API.
+- Nếu Context7 không khả dụng, tiếp tục sử dụng tài liệu và source code cục bộ, đồng thời thông báo giới hạn xác minh.
+
+## 7. Chế độ làm việc & Báo cáo (Quiet Execution)
+- Trong một lượt thực hiện nhiệm vụ, chủ động triển khai và kiểm tra trong phạm vi quyền hạn đã được cấp; không gửi cập nhật tiến độ hoặc giải thích trung gian nếu người dùng không yêu cầu. Chỉ báo cáo khi hoàn tất hoặc khi buộc phải dừng vì vướng mắc cần người dùng xử lý.
+- Nếu người dùng hỏi tiến độ, báo cáo đúng trạng thái thực tế tại thời điểm được hỏi; không nhận là đã xong khi công việc hoặc bước kiểm chứng còn dang dở.
+- Diễn đạt ngắn gọn, chuyên nghiệp, dễ hiểu; tập trung vào kết quả, không lan man, lặp ý hoặc suy diễn ngoài bằng chứng.
+- Trước khi kết luận, đối chiếu với mã nguồn, tài liệu, kết quả build/test hoặc bằng chứng phù hợp. Phân biệt rõ thông tin **đã xác minh**, **chưa xác minh** và **giả định**; không trình bày phỏng đoán thành sự thật.
+- Nếu chưa đủ cơ sở để khẳng định, nêu cụ thể điều cần kiểm tra và giới hạn hiện tại; chỉ đưa ra kết luận chắc chắn khi có bằng chứng hỗ trợ. Không tự nhận đã sửa xong, test pass hoặc thiết bị hoạt động thực tế nếu chưa được kiểm chứng.
+- Báo cáo cuối cùng chỉ gồm: việc đã làm, kết quả kiểm chứng, tồn đọng/rủi ro (nếu có) và thao tác người dùng cần thực hiện (nếu có). Tuân thủ các giới hạn về bảo mật, nạp firmware và `git commit`/`git push` tại các mục trên; chế độ làm việc yên lặng không phải quyền tự phê duyệt thao tác bị cấm.
