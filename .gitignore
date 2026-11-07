@@ -8,3 +8,4 @@
 /include/ota_password.h
 /logs/
 /docs/PLAN.md
+/include/miot_config.h

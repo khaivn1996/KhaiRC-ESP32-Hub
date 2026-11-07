@@ -1,6 +1,7 @@
 
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
+#include "MiotLocal.h"
 #include <cstring>
 
 namespace {
@@ -17,7 +18,8 @@ const Device devices[] = {
     {"toshiba_ac", "Toshiba AC", "ir_ac", "ir"},
     {"fan_ir", "IR Fan", "ir_fan", "ir"},
     {"rangdong_plug_01", "Rang Dong Plug",
-     "tuya_plug", "tuya_cloud"}
+     "tuya_plug", "tuya_cloud"},
+    {"milife_plug_10a", "Milife 10A", "smart_plug", "miio_lan"}
 };
 
 constexpr size_t DEVICE_COUNT =
@@ -38,12 +40,18 @@ void appendDeviceJson(String& json, const Device& d) {
 
     const bool fan = strcmp(d.id, "fan_ir") == 0;
     const bool toshiba = strcmp(d.id, "toshiba_ac") == 0;
+    const bool milife = strcmp(d.id, "milife_plug_10a") == 0;
 
     // Availability reports the local driver, not appliance power/reachability.
     json += "\",\"availability\":\"";
-    json += (fan || toshiba)
-        ? (IrDiagnostics::isReady() ? "ready" : "not_ready")
-        : "not_configured";
+    if (milife) {
+        // Configured means a token/IP is present, NOT that the plug is online.
+        json += MiotLocal::configured() ? "configured" : "not_configured";
+    } else {
+        json += (fan || toshiba)
+            ? (IrDiagnostics::isReady() ? "ready" : "not_ready")
+            : "not_configured";
+    }
     json += "\",\"supported_actions\":";
     if (fan) {
         json += "[\"power_on\",\"swing\",\"power_off\"]";

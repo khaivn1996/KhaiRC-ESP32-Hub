@@ -2,6 +2,7 @@
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
 #include "OtaService.h"
+#include "MiotLocal.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -84,6 +85,7 @@ void begin() {
     });
 
     CommandApi::registerRoutes(server);
+    MiotLocal::registerRoutes(server);
     OtaService::registerRoutes(server);
 
     server.onNotFound([]() {

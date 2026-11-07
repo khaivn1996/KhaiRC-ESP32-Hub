@@ -135,6 +135,12 @@ void handleCommand(WebServer& server) {
         return;
     }
 
+    // Milife is READ-ONLY in this rollout; reject every POST action.
+    if (deviceId == "milife_plug_10a") {
+        sendError(server, 422, "unsupported_action");
+        return;
+    }
+
     // 6. Validate vocabulary for this device before touching hardware.
     const bool fan = deviceId == "fan_ir";
     const bool toshiba = deviceId == "toshiba_ac";
