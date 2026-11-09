@@ -13,23 +13,12 @@
 
 namespace {
     WebServer server(80);
+    // The router must not forward this separate OTA port from the WAN.
+    WebServer otaServer(8081);
     bool serverRunning = false;
     uint32_t bootId = 0;
-}
 
-namespace ApiServer {
-
-void begin() {
-
-    bootId = esp_random();
-
-    static const char* headerKeys[] = {
-        "X-API-Key", "Content-Type", "X-OTA-Password",
-        "Content-Length", "Transfer-Encoding"
-    };
-    server.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(headerKeys[0]));
-
-    server.on("/api/v1/health", HTTP_GET, []() {
+    void sendHealth(WebServer& target) {
         String json = "{";
         json += "\"status\":\"ok\",";
         json += "\"device\":\"KhaiRC-ESP32-Hub\",";
@@ -43,7 +32,34 @@ void begin() {
         json += String(ESP.getFreeHeap());
         json += "}";
 
-        server.send(200, "application/json", json);
+        target.send(200, "application/json", json);
+    }
+}
+
+namespace ApiServer {
+
+void begin() {
+
+    bootId = esp_random();
+
+    static const char* headerKeys[] = {
+        "X-API-Key", "Content-Type", "X-OTA-Password",
+        "Content-Length", "Transfer-Encoding"
+    };
+    server.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(headerKeys[0]));
+    otaServer.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(headerKeys[0]));
+
+    // The OTA UI needs health on its own same-origin port to verify reboot.
+    server.on("/", HTTP_GET, []() {
+        server.sendHeader("Cache-Control", "no-store");
+        server.send(200, "application/json",
+                    "{\"service\":\"KhaiRC-ESP32-Hub\",\"status\":\"ok\"}");
+    });
+    server.on("/api/v1/health", HTTP_GET, []() {
+        sendHealth(server);
+    });
+    otaServer.on("/api/v1/health", HTTP_GET, []() {
+        sendHealth(otaServer);
     });
 
     server.on("/api/v1/system", HTTP_GET, []() {
@@ -86,13 +102,13 @@ void begin() {
 
     CommandApi::registerRoutes(server);
     MiotLocal::registerRoutes(server);
-    OtaService::registerRoutes(server);
+    OtaService::registerRoutes(otaServer);
 
     server.onNotFound([]() {
         String path = server.uri();
 
-        if (path == "/" || path == "/update" || path == "/api/v1/ota") {
-            server.sendHeader("Allow", path == "/update" ? "GET, POST" : "GET");
+        if (path == "/") {
+            server.sendHeader("Allow", "GET");
             server.send(405, "application/json", "{\"error\":{\"code\":\"method_not_allowed\"}}");
             return;
         }
@@ -176,6 +192,7 @@ void loop() {
     if (!WifiService::connected()) {
         if (serverRunning) {
             server.stop();
+            otaServer.stop();
             serverRunning = false;
             Serial.println("[API] Server stopped");
         }
@@ -184,11 +201,14 @@ void loop() {
 
     if (!serverRunning) {
         server.begin();
+        otaServer.begin();
         serverRunning = true;
-        Serial.println("[API] HTTP server started");
+        Serial.println("[API] HTTP server started on port 80");
+        Serial.println("[OTA] HTTP web update started on LAN port 8081");
     }
 
     server.handleClient();
+    otaServer.handleClient();
 }
 
 }

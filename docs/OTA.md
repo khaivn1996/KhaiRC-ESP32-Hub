@@ -1,6 +1,6 @@
 # Nạp firmware qua Wi-Fi cho KhaiRC ESP32-S3 Hub
 
-Tính năng OTA cung cấp trang `http://<IP-mạch>/update`. Bạn nhập mật khẩu OTA riêng, chọn `firmware.bin` và upload. Mạch kiểm tra file, ghi vào vùng ứng dụng còn lại rồi tự khởi động lại khi thành công. Trang web được phục vụ hoàn toàn từ ESP32, không cần Internet/CDN.
+Tính năng OTA cung cấp trang `http://<IP-mạch>:8081/update` trên cổng riêng biệt với REST API (cổng 80). Bạn nhập mật khẩu OTA riêng, chọn `firmware.bin` và upload. Mạch kiểm tra file, ghi vào vùng ứng dụng còn lại rồi tự khởi động lại khi thành công. Trang web được phục vụ hoàn toàn từ ESP32, không cần Internet/CDN. **Không forward cổng 8081 trên router**; tách cổng không thay thế xác thực và firewall.
 
 ## 1. Giới hạn đã chọn
 
@@ -65,7 +65,7 @@ Firmware đang chạy trên mạch chưa có trình nhận OTA, nên cần bư�
 
    Tìm dòng `[WiFi] IP: ...`. Khi mật khẩu hợp lệ, log có `[OTA] Web upload: /update`; nếu chưa cấu hình sẽ có `[OTA] Disabled: ...`. Dùng `Ctrl+C` để thoát monitor.
 
-5. Cho PC vào cùng mạng LAN với ESP32, mở `http://<IP-mạch>/`. Trang sẽ chuyển đến `/update`. Nếu không truy cập được, kiểm tra IP, Wi-Fi và chế độ cách ly thiết bị trên router/guest network.
+5. Cho PC vào cùng mạng LAN với ESP32, mở `http://<IP-mạch>:8081/update`. Cổng 80 giờ dùng cho REST API; truy cập `/` trả JSON thông tin Hub thay vì chuyển sang OTA. Nếu không truy cập được, kiểm tra IP, Wi-Fi và chế độ cách ly thiết bị trên router/guest network.
 
 Sau bước này có thể rút cáp nối PC và cấp nguồn cho mạch bằng nguồn phù hợp. OTA thay đường truyền firmware; mạch vẫn cần nguồn điện.
 
@@ -77,7 +77,7 @@ Sau bước này có thể rút cáp nối PC và cấp nguồn cho mạch bằn
    pio run -e esp32-s3-n16r8
    ```
 
-2. Mở `http://<IP-mạch>/update` trên trình duyệt.
+2. Mở `http://<IP-mạch>:8081/update` trên trình duyệt cùng LAN.
 3. Nhập mật khẩu OTA đang có trên mạch.
 4. Chọn đúng file ứng dụng:
 
@@ -103,7 +103,7 @@ Không cần lệnh `-t upload` cho các lần OTA qua trình duyệt. Nếu IP 
 | Upload mất kết nối | Chờ mạch ổn định rồi kiểm tra health/IP trước khi thử thủ công; trang không tự gửi lại firmware |
 | Đã ghi thành công nhưng chưa thấy mạch online | Kiểm tra nguồn, DHCP/IP và cấu hình Wi-Fi của firmware mới |
 
-- Dùng trong LAN tin cậy. HTTP không mã hóa mật khẩu hoặc firmware; không mở cổng trang OTA trực tiếp ra Internet. Mật khẩu không nằm trong URL, không được lưu vào localStorage/cookie và được xóa khỏi ô nhập sau lượt gửi.
+- Dùng trong LAN tin cậy trên cổng 8081 (không forward từ Internet). HTTP không mã hóa mật khẩu hoặc firmware; tách cổng chỉ ngăn OTA đi qua rule Port Forward dành cho API trên cổng 80, không tự bảo vệ khi router định tuyến 8081 từ WAN. Mật khẩu không nằm trong URL, không được lưu vào localStorage/cookie và được xóa khỏi ô nhập sau lượt gửi.
 - Firmware được xác thực mật khẩu trước khi xóa/ghi flash; kiểm tra chip ESP32-S3, header ứng dụng, số byte và checksum/SHA-256 trước khi chọn bản khởi động mới. SHA-256 ở đây kiểm tra tính toàn vẹn ảnh, không phải chữ ký xác thực nhà phát hành.
 - Mất kết nối/ghi lỗi trước bước chọn bản khởi động mới sẽ không kích hoạt ảnh đang ghi dở. Code không tự retry upload.
 - Trong lúc nhận file, WebServer xử lý đồng bộ; các API điều khiển/Serial có thể tạm chờ. Có giới hạn 120 giây cho luồng upload và timeout đọc mạng 5 giây.
