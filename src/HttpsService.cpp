@@ -2,7 +2,7 @@
 #include "WifiService.h"
 #include <Arduino.h>
 
-// Stage 2A: pinned HTTPS read APIs. No HTTPS commands, power writes or OTA.
+// Stage 2B: pinned HTTPS read APIs plus ONLY Toshiba FIX POST. No MiLife writes or OTA.
 // Keep the proven HTTP/80 and LAN OTA/8081 available for recovery.
 #if __has_include(<esp_https_server.h>) && __has_include("tls_credentials.h")
 #define KHAIRC_HTTPS_ENABLED 1
@@ -10,6 +10,7 @@
 #include <esp_http_server.h>
 #include <WiFi.h>
 #include <cstring>
+#include <ArduinoJson.h>
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
 #include "MiotLocal.h"
@@ -127,6 +128,97 @@ namespace {
         return sendJson(request, "200 OK", json);
     }
 
+
+    // Exactly one HTTPS write action is enabled: Toshiba FIX.
+    // No TAIZ, Daikin, MiLife power, OTA or generic device command handling.
+    esp_err_t postToshibaFix(httpd_req_t* request) {
+        constexpr size_t MAX_BODY_SIZE = 512;
+        if (!authorized(request)) {
+            return sendError(request, "401 Unauthorized", "unauthorized");
+        }
+        // Do not consume or act on bodies sent using unsupported framing.
+        if (httpd_req_get_hdr_value_len(request, "Transfer-Encoding") != 0) {
+            return sendError(request, "400 Bad Request", "invalid_command");
+        }
+        const size_t typeLength = httpd_req_get_hdr_value_len(request, "Content-Type");
+        if (typeLength == 0 || typeLength >= 64) {
+            return sendError(request, "415 Unsupported Media Type", "unsupported_media_type");
+        }
+        char contentType[64] = {};
+        if (httpd_req_get_hdr_value_str(request, "Content-Type",
+                                        contentType, sizeof(contentType)) != ESP_OK ||
+            (strcmp(contentType, "application/json") != 0 &&
+             strncmp(contentType, "application/json;", 17) != 0)) {
+            return sendError(request, "415 Unsupported Media Type", "unsupported_media_type");
+        }
+        if (request->content_len <= 0) {
+            return sendError(request, "400 Bad Request", "invalid_json");
+        }
+        if (request->content_len > static_cast<int>(MAX_BODY_SIZE)) {
+            return sendError(request, "413 Payload Too Large", "payload_too_large");
+        }
+
+        char body[MAX_BODY_SIZE + 1] = {};
+        int offset = 0;
+        while (offset < request->content_len) {
+            const int n = httpd_req_recv(request, body + offset,
+                                         static_cast<size_t>(request->content_len - offset));
+            if (n <= 0) {
+                // ESP-IDF requires closing the connection after recv failure.
+                // The client must treat a missing acknowledgement as uncertain.
+                return ESP_FAIL;
+            }
+            offset += n;
+        }
+        if (memchr(body, '\0', static_cast<size_t>(offset)) != nullptr) {
+            return sendError(request, "400 Bad Request", "invalid_json");
+        }
+        JsonDocument doc;
+        if (deserializeJson(doc, body, static_cast<size_t>(offset),
+                            DeserializationOption::NestingLimit(3)) ||
+            !doc.is<JsonObject>()) {
+            return sendError(request, "400 Bad Request", "invalid_json");
+        }
+        if (!doc["device_id"].is<const char*>() ||
+            !doc["action"].is<const char*>()) {
+            return sendError(request, "400 Bad Request", "invalid_command");
+        }
+        const char* deviceId = doc["device_id"].as<const char*>();
+        const char* action = doc["action"].as<const char*>();
+        if (doc["device_id"].as<JsonString>().size() != strlen(deviceId) ||
+            doc["action"].as<JsonString>().size() != strlen(action)) {
+            return sendError(request, "400 Bad Request", "invalid_command");
+        }
+        if (doc.as<JsonObject>().size() != 2 ||
+            strcmp(deviceId, "toshiba_ac") != 0 || strcmp(action, "fix") != 0) {
+            return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+        }
+        if (OtaService::rebootPending() || !IrDiagnostics::isReady()) {
+            return sendError(request, "503 Service Unavailable", "device_not_ready");
+        }
+        // One explicit request -> at most one RMT transmission. No retry.
+        // IrDiagnostics guards the shared transmitter across HTTP/HTTPS/Serial tasks.
+        const esp_err_t sent = IrDiagnostics::sendToshibaFix();
+        if (sent == ESP_ERR_INVALID_STATE) {
+            return sendError(request, "503 Service Unavailable", "device_not_ready");
+        }
+        if (sent != ESP_OK) {
+            return sendError(request, "500 Internal Server Error", "ir_send_failed");
+        }
+        return sendJson(request, "200 OK",
+            "{\"schema_version\":1,\"device_id\":\"toshiba_ac\","
+            "\"action\":\"fix\",\"transport\":\"ir\",\"status\":\"sent\","
+            "\"state_verified\":false}");
+    }
+
+    bool registerPost(const char* uri, esp_err_t (*handler)(httpd_req_t*)) {
+        httpd_uri_t route{};
+        route.uri = uri;
+        route.method = HTTP_POST;
+        route.handler = handler;
+        return httpd_register_uri_handler(secureServer, &route) == ESP_OK;
+    }
+
     bool registerGet(const char* uri, esp_err_t (*handler)(httpd_req_t*)) {
         httpd_uri_t route{};
         route.uri = uri;
@@ -139,7 +231,7 @@ namespace {
         httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
         config.port_secure = 443;
         config.httpd.stack_size = 8192;
-        config.httpd.max_uri_handlers = 5;
+        config.httpd.max_uri_handlers = 6;
         config.httpd.max_open_sockets = 2;
         config.httpd.lru_purge_enable = true;
         config.servercert = reinterpret_cast<const uint8_t*>(HUB_TLS_CERT_PEM);
@@ -158,13 +250,14 @@ namespace {
             !registerGet("/api/v1/system", getSystem) ||
             !registerGet("/api/v1/capabilities", getCapabilities) ||
             !registerGet("/api/v1/devices", getDevices) ||
-            !registerGet("/api/v1/devices/milife_plug_10a/state", getMilifeState)) {
+            !registerGet("/api/v1/devices/milife_plug_10a/state", getMilifeState) ||
+            !registerPost("/api/v1/commands", postToshibaFix)) {
             httpd_ssl_stop(secureServer);
             secureServer = nullptr;
-            Serial.println("[HTTPS] Stage 2A registration failed");
+            Serial.println("[HTTPS] Stage 2B registration failed");
             return;
         }
-        Serial.println("[HTTPS] Stage 2A read-only API on 443 (Milife state requires key)");
+        Serial.println("[HTTPS] Stage 2B on 443: Toshiba FIX only; Milife remains read-only");
     }
 #endif
 }
@@ -172,9 +265,9 @@ namespace {
 namespace HttpsService {
     void begin() {
 #if KHAIRC_HTTPS_ENABLED
-        Serial.println("[HTTPS] Stage 2A configured; starting when Wi-Fi is ready");
+        Serial.println("[HTTPS] Stage 2B configured; starting when Wi-Fi is ready");
 #else
-        Serial.println("[HTTPS] Stage 2A disabled: missing TLS credentials or HTTPS component");
+        Serial.println("[HTTPS] Stage 2B disabled: missing TLS credentials or HTTPS component");
 #endif
     }
 

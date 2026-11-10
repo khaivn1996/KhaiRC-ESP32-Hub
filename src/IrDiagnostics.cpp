@@ -2,6 +2,7 @@
 #include "IrDiagnostics.h"
 
 #include <Arduino.h>
+#include <atomic>
 #include "driver/rmt_tx.h"
 #include "driver/rmt_encoder.h"
 #include "esp_err.h"
@@ -13,7 +14,22 @@ constexpr int IR_PIN = 4;
 rmt_channel_handle_t txChannel = nullptr;
 rmt_encoder_handle_t txEncoder = nullptr;
 
-bool initialized = false;
+std::atomic<bool> initialized{false};
+
+// Both the Arduino HTTP loop and ESP-IDF HTTPS server task may issue IR.
+// Acquire BEFORE filling static RMT buffers and hold through wait_all_done.
+// Busy requests fail closed; they are never queued or retried.
+std::atomic_flag txBusy = ATOMIC_FLAG_INIT;
+class TxGate {
+public:
+    TxGate() : acquired(!txBusy.test_and_set(std::memory_order_acquire)) {}
+    ~TxGate() { if (acquired) txBusy.clear(std::memory_order_release); }
+    bool ok() const { return acquired; }
+    TxGate(const TxGate&) = delete;
+    TxGate& operator=(const TxGate&) = delete;
+private:
+    bool acquired;
+};
 
 void printError(const char* step, esp_err_t err) {
     Serial.printf(
@@ -23,8 +39,8 @@ void printError(const char* step, esp_err_t err) {
     );
 }
 
-// All callers run sequentially on the Arduino loop task. No automatic retry:
-// an uncertain SWING/FIX transmission must not become a second button press.
+// Every public send entrypoint holds TxGate while filling its static RMT buffer
+// and transmitting. No auto-retry of uncertain stateful commands.
 esp_err_t transmitSymbols(
     const rmt_symbol_word_t* symbols,
     size_t sizeBytes,
@@ -194,6 +210,8 @@ void testBurst() {
 
 
 esp_err_t sendFanHigh() {
+    TxGate txGate;
+    if (!txGate.ok()) return ESP_ERR_INVALID_STATE;
     if (!isReady()) {
         Serial.println("[IR] Fan HIGH: not ready");
         return ESP_ERR_INVALID_STATE;
@@ -239,6 +257,8 @@ esp_err_t sendFanHigh() {
 
 
 esp_err_t sendFanSwing() {
+    TxGate txGate;
+    if (!txGate.ok()) return ESP_ERR_INVALID_STATE;
     if (!isReady()) {
         Serial.println("[IR] Fan TAIZ SWING: not ready");
         return ESP_ERR_INVALID_STATE;
@@ -283,6 +303,8 @@ esp_err_t sendFanSwing() {
 
 
 esp_err_t sendFanOff() {
+    TxGate txGate;
+    if (!txGate.ok()) return ESP_ERR_INVALID_STATE;
     if (!isReady()) {
         Serial.println("[IR] Fan OFF: not ready");
         return ESP_ERR_INVALID_STATE;
@@ -323,6 +345,8 @@ esp_err_t sendFanOff() {
 
 
 esp_err_t sendToshibaFix() {
+    TxGate txGate;
+    if (!txGate.ok()) return ESP_ERR_INVALID_STATE;
     if (!isReady()) {
         Serial.println("[IR] Toshiba FIX: not ready");
         return ESP_ERR_INVALID_STATE;
