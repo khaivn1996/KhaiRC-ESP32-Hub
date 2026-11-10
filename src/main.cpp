@@ -3,6 +3,7 @@
 #include "IrDiagnostics.h"
 #include "WifiService.h"
 #include "ApiServer.h"
+#include "HttpsService.h"
 
 void setup() {
     Serial.begin(115200);
@@ -17,6 +18,7 @@ void setup() {
     WifiService::begin();
     DeviceRegistry::begin();
     ApiServer::begin();
+    HttpsService::begin();
     IrDiagnostics::begin();
 
     Serial.println("[IR TEST] Manual mode: S = TAIZ SWING, F = Toshiba FIX");
@@ -27,6 +29,7 @@ void setup() {
 void loop() {
     WifiService::loop();
     ApiServer::loop();
+    HttpsService::loop();
 
     // Manual tests only. CR/LF and unrelated characters are ignored.
     if (Serial.available()) {

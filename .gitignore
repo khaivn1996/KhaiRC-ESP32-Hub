@@ -9,3 +9,6 @@
 /logs/
 /docs/PLAN.md
 /include/miot_config.h
+/include/tls_credentials.h
+/include/tls_certificate.pem
+/include/tls_private_key.pem
