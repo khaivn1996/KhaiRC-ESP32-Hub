@@ -2,7 +2,7 @@
 #include "WifiService.h"
 #include <Arduino.h>
 
-// Stage 2B: pinned HTTPS read APIs plus ONLY Toshiba FIX POST. No MiLife writes or OTA.
+// Stage 2C: HTTPS read APIs plus Toshiba-only state/FIX/SWING. No MiLife writes or OTA.
 // Keep the proven HTTP/80 and LAN OTA/8081 available for recovery.
 #if __has_include(<esp_https_server.h>) && __has_include("tls_credentials.h")
 #define KHAIRC_HTTPS_ENABLED 1
@@ -129,14 +129,13 @@ namespace {
     }
 
 
-    // Exactly one HTTPS write action is enabled: Toshiba FIX.
-    // No TAIZ, Daikin, MiLife power, OTA or generic device command handling.
-    esp_err_t postToshibaFix(httpd_req_t* request) {
+    // Only Toshiba is permitted on HTTPS writes; no raw IR, MiLife, TAIZ, Daikin or OTA.
+    // No command is queued or retried. API key checked before parsing a body.
+    esp_err_t postToshibaAction(httpd_req_t* request) {
         constexpr size_t MAX_BODY_SIZE = 512;
         if (!authorized(request)) {
             return sendError(request, "401 Unauthorized", "unauthorized");
         }
-        // Do not consume or act on bodies sent using unsupported framing.
         if (httpd_req_get_hdr_value_len(request, "Transfer-Encoding") != 0) {
             return sendError(request, "400 Bad Request", "invalid_command");
         }
@@ -157,18 +156,13 @@ namespace {
         if (request->content_len > static_cast<int>(MAX_BODY_SIZE)) {
             return sendError(request, "413 Payload Too Large", "payload_too_large");
         }
-
         char body[MAX_BODY_SIZE + 1] = {};
         int offset = 0;
         while (offset < request->content_len) {
-            const int n = httpd_req_recv(request, body + offset,
-                                         static_cast<size_t>(request->content_len - offset));
-            if (n <= 0) {
-                // ESP-IDF requires closing the connection after recv failure.
-                // The client must treat a missing acknowledgement as uncertain.
-                return ESP_FAIL;
-            }
-            offset += n;
+            const int read = httpd_req_recv(request, body + offset,
+                                   static_cast<size_t>(request->content_len - offset));
+            if (read <= 0) return ESP_FAIL; // close uncertain socket; no replay
+            offset += read;
         }
         if (memchr(body, '\0', static_cast<size_t>(offset)) != nullptr) {
             return sendError(request, "400 Bad Request", "invalid_json");
@@ -179,36 +173,75 @@ namespace {
             !doc.is<JsonObject>()) {
             return sendError(request, "400 Bad Request", "invalid_json");
         }
-        if (!doc["device_id"].is<const char*>() ||
-            !doc["action"].is<const char*>()) {
+        if (!doc["device_id"].is<const char*>() || !doc["action"].is<const char*>()) {
             return sendError(request, "400 Bad Request", "invalid_command");
         }
-        const char* deviceId = doc["device_id"].as<const char*>();
+        const char* device = doc["device_id"].as<const char*>();
         const char* action = doc["action"].as<const char*>();
-        if (doc["device_id"].as<JsonString>().size() != strlen(deviceId) ||
+        if (doc["device_id"].as<JsonString>().size() != strlen(device) ||
             doc["action"].as<JsonString>().size() != strlen(action)) {
             return sendError(request, "400 Bad Request", "invalid_command");
         }
-        if (doc.as<JsonObject>().size() != 2 ||
-            strcmp(deviceId, "toshiba_ac") != 0 || strcmp(action, "fix") != 0) {
+        if (strcmp(device, "toshiba_ac") != 0) {
+            return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+        }
+        const bool stateAction = strcmp(action, "state") == 0;
+        const bool fix = strcmp(action, "fix") == 0;
+        const bool swingOn = strcmp(action, "swing_on") == 0;
+        const bool swingOff = strcmp(action, "swing_off") == 0;
+        if (!(stateAction || fix || swingOn || swingOff)) {
+            return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+        }
+        bool power = false;
+        int temperatureC = 0;
+        uint8_t fanByte = 0;
+        if (stateAction) {
+            if (doc.as<JsonObject>().size() != 5 ||
+                !doc["power"].is<bool>() ||
+                !doc["temperature_c"].is<int>() ||
+                !doc["fan_speed"].is<const char*>()) {
+                return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+            }
+            const char* fan = doc["fan_speed"].as<const char*>();
+            if (doc["fan_speed"].as<JsonString>().size() != strlen(fan)) {
+                return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+            }
+            if (strcmp(fan,"auto") == 0) fanByte = 0x80;
+            else if (strcmp(fan,"1") == 0) fanByte = 0x82;
+            else if (strcmp(fan,"2") == 0) fanByte = 0x86;
+            else if (strcmp(fan,"3") == 0) fanByte = 0x81;
+            else if (strcmp(fan,"4") == 0) fanByte = 0x85;
+            else if (strcmp(fan,"5") == 0) fanByte = 0x83;
+            else return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+            temperatureC = doc["temperature_c"].as<int>();
+            if (temperatureC < 17 || temperatureC > 30) {
+                return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+            }
+            power = doc["power"].as<bool>();
+        } else if (doc.as<JsonObject>().size() != 2) {
             return sendError(request, "422 Unprocessable Entity", "unsupported_action");
         }
         if (OtaService::rebootPending() || !IrDiagnostics::isReady()) {
             return sendError(request, "503 Service Unavailable", "device_not_ready");
         }
-        // One explicit request -> at most one RMT transmission. No retry.
-        // IrDiagnostics guards the shared transmitter across HTTP/HTTPS/Serial tasks.
-        const esp_err_t sent = IrDiagnostics::sendToshibaFix();
+        esp_err_t sent = ESP_ERR_INVALID_ARG;
+        if (fix) sent = IrDiagnostics::sendToshibaFix();
+        else if (swingOn || swingOff) sent = IrDiagnostics::sendToshibaSwing(swingOn);
+        else if (stateAction) sent = IrDiagnostics::sendToshibaState(power, temperatureC, fanByte);
         if (sent == ESP_ERR_INVALID_STATE) {
             return sendError(request, "503 Service Unavailable", "device_not_ready");
+        }
+        if (sent == ESP_ERR_INVALID_ARG) {
+            return sendError(request, "422 Unprocessable Entity", "unsupported_action");
         }
         if (sent != ESP_OK) {
             return sendError(request, "500 Internal Server Error", "ir_send_failed");
         }
-        return sendJson(request, "200 OK",
-            "{\"schema_version\":1,\"device_id\":\"toshiba_ac\","
-            "\"action\":\"fix\",\"transport\":\"ir\",\"status\":\"sent\","
-            "\"state_verified\":false}");
+        // Ack only means ESP32 completed one requested RMT send, not AC state.
+        String reply = "{\"schema_version\":1,\"device_id\":\"toshiba_ac\",\"action\":\"";
+        reply += action; // previously matched fixed vocabulary only
+        reply += "\",\"transport\":\"ir\",\"status\":\"sent\",\"state_verified\":false}";
+        return sendJson(request, "200 OK", reply);
     }
 
     bool registerPost(const char* uri, esp_err_t (*handler)(httpd_req_t*)) {
@@ -251,13 +284,13 @@ namespace {
             !registerGet("/api/v1/capabilities", getCapabilities) ||
             !registerGet("/api/v1/devices", getDevices) ||
             !registerGet("/api/v1/devices/milife_plug_10a/state", getMilifeState) ||
-            !registerPost("/api/v1/commands", postToshibaFix)) {
+            !registerPost("/api/v1/commands", postToshibaAction)) {
             httpd_ssl_stop(secureServer);
             secureServer = nullptr;
-            Serial.println("[HTTPS] Stage 2B registration failed");
+            Serial.println("[HTTPS] Stage 2C registration failed");
             return;
         }
-        Serial.println("[HTTPS] Stage 2B on 443: Toshiba FIX only; Milife remains read-only");
+        Serial.println("[HTTPS] Stage 2C on 443: full Toshiba controls; Milife read-only");
     }
 #endif
 }
@@ -265,9 +298,9 @@ namespace {
 namespace HttpsService {
     void begin() {
 #if KHAIRC_HTTPS_ENABLED
-        Serial.println("[HTTPS] Stage 2B configured; starting when Wi-Fi is ready");
+        Serial.println("[HTTPS] Stage 2C configured; starting when Wi-Fi is ready");
 #else
-        Serial.println("[HTTPS] Stage 2B disabled: missing TLS credentials or HTTPS component");
+        Serial.println("[HTTPS] Stage 2C disabled: missing TLS credentials or HTTPS component");
 #endif
     }
 

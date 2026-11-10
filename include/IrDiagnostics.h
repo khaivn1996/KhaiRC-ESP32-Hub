@@ -10,6 +10,8 @@ namespace IrDiagnostics {
     esp_err_t sendFanSwing();
     esp_err_t sendFanOff();
     esp_err_t sendToshibaFix();
+    esp_err_t sendToshibaState(bool power, int temperatureC, uint8_t fanProtocolByte);
+    esp_err_t sendToshibaSwing(bool enabled);
     void testBurst();
     void testDc();
     void testFanHigh();

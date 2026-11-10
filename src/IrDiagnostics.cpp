@@ -1,5 +1,6 @@
 
 #include "IrDiagnostics.h"
+#include "ToshibaCodec.h"
 
 #include <Arduino.h>
 #include <atomic>
@@ -399,6 +400,53 @@ esp_err_t sendToshibaFix() {
     appendSymbol(550, 550);
 
     return transmitSymbols(symbols, sizeof(symbols), "Toshiba FIX");
+}
+
+// Frame timing exactly mirrors ToshibaAcEncoder.buildPattern() on Android.
+// TxGate must be held BEFORE touching this shared static symbol buffer.
+template <size_t FRAME_BYTES>
+esp_err_t transmitToshibaFrames(const uint8_t (&frame)[FRAME_BYTES],
+                                uint8_t repetitions, const char* label) {
+    constexpr size_t MAX_SYMBOLS = 148; // 2 * (9*8 + header + terminal)
+    static rmt_symbol_word_t symbols[MAX_SYMBOLS] = {};
+    const size_t needed = repetitions * (FRAME_BYTES * 8 + 2);
+    if (needed > MAX_SYMBOLS || repetitions == 0) return ESP_ERR_INVALID_ARG;
+    size_t index = 0;
+    auto append = [&](uint16_t markUs, uint16_t spaceUs) {
+        symbols[index].level0 = 1;
+        symbols[index].duration0 = markUs;
+        symbols[index].level1 = 0;
+        symbols[index].duration1 = spaceUs;
+        ++index;
+    };
+    for (uint8_t repeat = 0; repeat < repetitions; ++repeat) {
+        append(4350, 4300);
+        for (const uint8_t byte : frame) {
+            for (uint8_t bit = 0; bit < 8; ++bit) {
+                append(550, (byte & (1U << bit)) ? 1600 : 550);
+            }
+        }
+        append(550, repeat + 1 < repetitions ? 7350 : 550);
+    }
+    return transmitSymbols(symbols, index * sizeof(symbols[0]), label);
+}
+
+esp_err_t sendToshibaState(bool power, int temperatureC, uint8_t fanProtocolByte) {
+    TxGate txGate;
+    if (!txGate.ok() || !isReady()) return ESP_ERR_INVALID_STATE;
+    uint8_t frame[9] = {};
+    if (!ToshibaCodec::stateFrame(power, temperatureC, fanProtocolByte, frame)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return transmitToshibaFrames(frame, 2, "Toshiba STATE");
+}
+
+esp_err_t sendToshibaSwing(bool enabled) {
+    TxGate txGate;
+    if (!txGate.ok() || !isReady()) return ESP_ERR_INVALID_STATE;
+    uint8_t frame[7] = {};
+    ToshibaCodec::swingFrame(enabled, frame);
+    return transmitToshibaFrames(frame, 2, enabled ? "Toshiba SWING ON" : "Toshiba SWING OFF");
 }
 
 // Keep the existing serial diagnostics entry points.
