@@ -15,6 +15,7 @@
 #include "IrDiagnostics.h"
 #include "MiotLocal.h"
 #include "OtaService.h"
+#include "WebUi.h"
 #include "secrets.h"
 #include "tls_credentials.h"
 #else
@@ -264,7 +265,8 @@ namespace {
         httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
         config.port_secure = 443;
         config.httpd.stack_size = 8192;
-        config.httpd.max_uri_handlers = 6;
+        config.httpd.max_uri_handlers = 15;
+        config.httpd.max_req_hdr_len = 1536;
         config.httpd.max_open_sockets = 2;
         config.httpd.lru_purge_enable = true;
         config.servercert = reinterpret_cast<const uint8_t*>(HUB_TLS_CERT_PEM);
@@ -284,13 +286,14 @@ namespace {
             !registerGet("/api/v1/capabilities", getCapabilities) ||
             !registerGet("/api/v1/devices", getDevices) ||
             !registerGet("/api/v1/devices/milife_plug_10a/state", getMilifeState) ||
-            !registerPost("/api/v1/commands", postToshibaAction)) {
+            !registerPost("/api/v1/commands", postToshibaAction) ||
+            !WebUi::registerRoutes(secureServer)) {
             httpd_ssl_stop(secureServer);
             secureServer = nullptr;
             Serial.println("[HTTPS] Stage 2C registration failed");
             return;
         }
-        Serial.println("[HTTPS] Stage 2C on 443: full Toshiba controls; Milife read-only");
+        Serial.println("[HTTPS] Stage 3A on 443: Toshiba Web UI + Stage 2C APIs");
     }
 #endif
 }
@@ -310,6 +313,7 @@ namespace HttpsService {
         if (!online && secureServer != nullptr) {
             httpd_ssl_stop(secureServer);
             secureServer = nullptr;
+            WebUi::resetSessions();
             attempted = false;
             Serial.println("[HTTPS] Stopped after Wi-Fi disconnect");
         }
