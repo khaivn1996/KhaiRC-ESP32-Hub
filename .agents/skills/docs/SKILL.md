@@ -56,7 +56,7 @@ git diff --name-status -M <last> HEAD
 
 Nếu `git merge-base --is-ancestor <last> HEAD` thất bại (đã đổi nhánh/rebase) vẫn dùng `git diff <last> HEAD` nhưng ghi chú điều này trong báo cáo.
 
-**Bộ lọc — bỏ qua các đường dẫn:** `docs/PROJECT_SPEC.md` và `docs/spec/**` (chính spec, tránh vòng lặp), `include/secrets.h`, `include/ota_password.h`, `backups/`, `*.patch`, `build/`, `.pio/`, `logs/`, `.git/`, `.vscode/`, `.idea/`, `*.lock`, `*.bin`, `*.elf`, `*.map`, ảnh và file nhị phân khác.
+**Bộ lọc — bỏ qua các đường dẫn:** `docs/PROJECT_SPEC.md` và `docs/spec/**` (chính spec, tránh vòng lặp), `include/secrets.h`, `include/ota_password.h`, `backups/`, `*.patch`, `build/`, `.pio/`, `logs/`, `.git/`, `.vscode/`, `.idea/`, `.agents/`, `.claude/`, `CLAUDE.md`, `*.lock`, `*.bin`, `*.elf`, `*.map`, ảnh và file nhị phân khác.
 
 Nếu có thay đổi chưa commit, KHÔNG đưa vào spec. Spec luôn phản ánh đúng HEAD. Nhắc người dùng commit trước rồi chạy lại `$docs` nếu muốn ghi nhận chúng.
 

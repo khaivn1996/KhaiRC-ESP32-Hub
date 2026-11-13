@@ -27,7 +27,7 @@ Tài liệu này dành cho người dùng, không phải cho agent. Quy tắc ch
 1. Chat mới, chọn model mạnh + effort high. Gõ ví dụ: `$architect Thêm lệnh power_on/power_off cho daikin_ac qua IR`.
 2. `$architect` tự tạo `docs/PLAN.md` (không cần tạo trước) rồi dừng và hỏi các câu hỏi mở.
 3. Đọc `docs/PLAN.md`, sửa nếu cần, trả lời câu hỏi mở bằng cách ghi vào file hoặc nói trong chat.
-4. Chat mới, model Sol + effort medium. Gõ `$implement`. Nó làm từng Step, build và test, tick `[x]`. Dừng khi cần thử trên mạch, cần quyết định ngoài plan, hoặc lỗi lặp quá 2 lần.
+4. Chat mới, model Sol + effort medium. Gõ `$implement`. Nó thực hiện liền mạch toàn bộ Step trong phạm vi, chỉ chạy kiểm chứng ở mục 5 của `docs/PLAN.md` và tick `[x]` một lần ở cuối. Dừng khi cần thử trên mạch, cần quyết định ngoài plan, hoặc lỗi lặp quá 2 lần.
 5. Nạp firmware và thử trên mạch theo plan (agent không tự nạp).
 6. Chat mới: `$reviewer`. Sửa các Blocker/Major (có thể bảo `$implement` hoặc sửa tay).
 7. Tự commit, rồi chat mới chạy `$docs`.

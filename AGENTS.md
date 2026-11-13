@@ -34,11 +34,14 @@ Sau khi hoàn thành và commit một tính năng, chạy `$docs` để đồng 
 - **Test host OTA** (khi đụng `OtaService`/`OtaPage`/`test/ota_host`): `python tools/test-ota.py --cxx <g++.exe>`; `g++.exe` nằm trong `$env:USERPROFILE\.platformio\packages\toolchain-gccmingw32\bin` (xem `docs/OTA.md` §6), không thấy thì hỏi người dùng. Test trang: `python tools/test-ota-page.py --browser <chrome.exe|msedge.exe>`.
 - Nạp firmware (chỉ khi người dùng yêu cầu): `pio run -t upload`. Xem Serial log: `pio device monitor -b 115200` (chặn vô hạn: không tự chạy, nhờ người dùng dán log).
 - Cùng một lỗi build/test sửa quá 2 lần chưa xong thì dừng, đọc lại lỗi gốc rồi báo cáo; không sửa mò.
+- **Task chỉ đổi cấu hình agent (Markdown/YAML):** không chạy `pio run`. Kiểm chứng: `git diff --stat`; quét ký tự ẩn `Select-String -Path CLAUDE.md,AGENTS.md,.agents\skills\*\SKILL.md,.agents\skills\*\agents\openai.yaml -Pattern '[\u200B-\u200F\u00A0\uFEFF\u2060\u202A-\u202E\u00AD]'` (mong đợi: không có kết quả); mỗi file `.md` có số dòng bắt đầu bằng ``` hoặc `~~~` là số chẵn.
 
 ## 5. Quy trình phân vai & Đọc đặc tả (Mỗi vai một chat riêng)
-- `$architect <yêu cầu>`: chỉ ghi `docs/PLAN.md` (Zero-Discovery Plan, trích xuất sẵn ngữ cảnh code). - `$implement [phạm vi]`: sửa code liền mạch cho toàn bộ các Step trong phạm vi; chỉ chạy build/test và tick `[x]` vào `docs/PLAN.md` 1 lần ở cuối. Không tự gọi lại `tools/spec.py` (dùng thẳng thông tin trong `PLAN.md`).
-- `$reviewer`: chỉ đọc diff, chạy kiểm chứng và báo cáo. `$debugger`: chỉ chẩn đoán từ bằng chứng. `$docs`: chạy sau khi commit để đồng bộ `docs/PROJECT_SPEC.md`. - **Cách đọc `docs/PROJECT_SPEC.md` (áp dụng cho `$architect`, `$reviewer`, `$debugger`):** không đọc cả file (~40 KB); chạy `python tools/spec.py` in mục lục; `python tools/spec.py 0 8 9 5.5` in các mục cần. Luôn đọc §0 và §8; thêm §9 khi thêm tính năng; thêm module/§6 liên quan (tra bản đồ file → mục ở §12).
-- Không tự `git commit`/`git push`/upload. Xong việc = build sạch + test host liên quan pass + liệt kê các bước người dùng phải thử trên mạch.
+- `$architect <yêu cầu>`: chỉ ghi `docs/PLAN.md` (Zero-Discovery Plan, trích xuất sẵn ngữ cảnh code).
+- `$implement [phạm vi]`: sửa code liền mạch cho toàn bộ các Step trong phạm vi; chỉ chạy build/test và tick `[x]` vào `docs/PLAN.md` 1 lần ở cuối. Không tự gọi lại `tools/spec.py` (dùng thẳng thông tin trong `PLAN.md`).
+- `$reviewer`: chỉ đọc diff, chạy kiểm chứng và báo cáo. `$debugger`: chỉ chẩn đoán từ bằng chứng. `$docs`: chạy sau khi commit để đồng bộ `docs/PROJECT_SPEC.md`.
+- **Cách đọc `docs/PROJECT_SPEC.md` (áp dụng cho `$architect`, `$reviewer`, `$debugger`):** không đọc cả file (~40 KB); chạy `python tools/spec.py` in mục lục; `python tools/spec.py 0 8 9 5.5` in các mục cần. Luôn đọc §0 và §8; thêm §9 khi thêm tính năng; thêm module/§6 liên quan (tra bản đồ file → mục ở §12).
+- Không tự `git commit`/`git push`/upload. Xong việc = build sạch + test host liên quan pass + liệt kê các bước người dùng phải thử trên mạch. Ngoại lệ: task chỉ đổi Markdown/YAML cấu hình agent thì không chạy `pio run`; kiểm chứng theo §4 (bullet "Task chỉ đổi cấu hình agent").
 - Build cần `include/secrets.h` cục bộ (và `include/ota_password.h` nếu bật OTA). Thiếu thì dừng và báo, không tự tạo với giá trị thật.
 
 ## 6. Context7 MCP — Tra cứu tài liệu kỹ thuật

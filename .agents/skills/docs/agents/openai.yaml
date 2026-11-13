@@ -1,6 +1,6 @@
 interface:
   display_name: "Docs"
-  short_description: "Đồng bộ đặc tả docs/PROJECT_SPEC.md từ git diff mới nhất"
+  short_description: "Đồng bộ docs/PROJECT_SPEC.md theo các commit mới kể từ lần đồng bộ trước"
   default_prompt: "Dùng $docs để đồng bộ đặc tả dự án trong docs/PROJECT_SPEC.md:"
 
 policy:

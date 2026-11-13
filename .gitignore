@@ -3,6 +3,7 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+backups
 # Local secrets
 /include/secrets.h
 /include/ota_password.h

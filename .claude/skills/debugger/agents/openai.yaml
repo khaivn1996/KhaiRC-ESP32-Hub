@@ -1,0 +1,7 @@
+interface:
+  display_name: "Debugger"
+  short_description: "Chẩn đoán log/crash/heap/IR/Wi-Fi/OTA bằng giả thuyết, không sửa mò"
+  default_prompt: "Dùng $debugger để chẩn đoán lỗi sau (kèm log Serial):"
+
+policy:
+  allow_implicit_invocation: false

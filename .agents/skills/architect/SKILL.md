@@ -16,7 +16,7 @@ Mục tiêu: tạo `docs/PLAN.md` đủ chi tiết (Zero-Discovery) để bướ
 
 ## Quy trình
 
-1. Đọc spec theo mục: `python tools/spec.py 0 8 9`, rồi mục module liên quan (tra §12). Đọc toàn bộ file `.cpp`/`.h` của module sẽ đổi (ngoại lệ `src/OtaPage.cpp` theo `AGENTS.md` §1). Spec lệch code thì tin code và ghi chỗ lệch.
+1. Task chỉ đụng Markdown/YAML cấu hình agent: bỏ qua `tools/spec.py`, chỉ đọc đúng các file bị sửa. Còn lại: đọc spec theo mục: `python tools/spec.py 0 8 9`, rồi mục module liên quan (tra §12). Đọc toàn bộ file `.cpp`/`.h` của module sẽ đổi (ngoại lệ `src/OtaPage.cpp` theo `AGENTS.md` §1). Spec lệch code thì tin code và ghi chỗ lệch.
 2. Thiếu thông tin quyết định thiết kế (giao thức, mã IR, kiểu xác thực...) thì ghi "Câu hỏi mở" thay vì tự giả định.
 3. Phân tích tác động, chỉ những mục áp dụng, mỗi mục một dòng kết luận:
    - Bất biến trong `AGENTS.md` §2-§3: chân cấm, RMT và no-retry, bảo mật HTTP, OTA.
@@ -34,7 +34,7 @@ Mục tiêu: tạo `docs/PLAN.md` đủ chi tiết (Zero-Discovery) để bướ
 ```markdown
 # PLAN: <tên tính năng>
 
-> **Execution Directives (Cho `$implement`):** Thực thi liền mạch toàn bộ các Step được giao trong một lượt duy nhất (Silent Batch). CẤM gọi subagent, CẤM đọc lại `tools/spec.py` hoặc quét file ngoài danh sách. CẤM báo cáo tiến độ hay chạy build sau từng Step lẻ; chỉ chạy build/test và tick `[x]` vào `docs/PLAN.md` đúng 1 lần sau khi đã sửa xong toàn bộ code.
+> **Execution Directives (Cho `$implement`):** Thực thi liền mạch toàn bộ các Step được giao trong một lượt duy nhất (Silent Batch). CẤM gọi subagent, CẤM đọc lại `tools/spec.py` hoặc quét file ngoài danh sách. CẤM báo cáo tiến độ hay chạy build sau từng Step lẻ; chỉ chạy kiểm chứng ở mục 5 và tick `[x]` vào `docs/PLAN.md` đúng 1 lần sau khi đã sửa xong toàn bộ code.
 
 ## 1. Mục tiêu & phạm vi
 Làm gì, không làm gì (2-6 dòng).
@@ -58,7 +58,7 @@ Quyết định và lý do. Chữ ký hàm, route (method, path, body, mã lỗi
 (Step cuối: cập nhật test host và tài liệu nếu có.)
 
 ## 5. Kiểm chứng gom lô (Chạy 1 lần sau khi hoàn tất các Step)
-- Lệnh build/test cụ thể theo `AGENTS.md` §4: `...`
+- Lệnh build/test cụ thể theo `AGENTS.md` §4: `...` (task chỉ sửa Markdown/YAML: `git diff --stat` + quét ký tự ẩn, không `pio run`)
 - Kết quả: (để `$implement` điền sau khi chạy)
 
 ## 6. Không được đụng

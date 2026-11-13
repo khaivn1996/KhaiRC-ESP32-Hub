@@ -1,0 +1,7 @@
+interface:
+  display_name: "Implement"
+  short_description: "Code liền mạch theo docs/PLAN.md, build/test và báo cáo 1 lần ở cuối"
+  default_prompt: "Dùng $implement để thực hiện liền mạch toàn bộ các Step trong docs/PLAN.md (không gọi subagent, không báo cáo trung gian giữa các Step):"
+
+policy:
+  allow_implicit_invocation: false

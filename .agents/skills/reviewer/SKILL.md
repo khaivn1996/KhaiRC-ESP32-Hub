@@ -35,7 +35,7 @@ Tìm lỗi thật và rủi ro thật trong thay đổi, báo cáo rõ để ng�
 
 ## Chạy kiểm chứng
 
-- Luôn build (`AGENTS.md` §4) và nêu RAM/Flash.
+- Diff có `src/`, `include/` hoặc `platformio.ini`: build (`AGENTS.md` §4) và nêu RAM/Flash. Diff chỉ Markdown/YAML: không build; chạy kiểm chứng "Task chỉ đổi cấu hình agent" ở `AGENTS.md` §4.
 - Diff đụng `OtaService`/`OtaPage`/`test/ota_host` thì chạy `tools/test-ota.py`; đụng giao diện trang thì thêm `tools/test-ota-page.py`.
 - Test không chạy được (thiếu g++/trình duyệt) thì nói rõ là chưa chạy, không suy đoán kết quả.
 

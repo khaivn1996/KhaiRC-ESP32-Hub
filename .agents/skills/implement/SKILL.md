@@ -25,16 +25,16 @@ Tiến độ nằm trong `docs/PLAN.md` (ô `[ ]`/`[x]`), nên chat mới có th
    - Lần lượt áp dụng chính xác thay đổi của tất cả các Step trong phạm vi vào mã nguồn.
    - Chỉ sửa các file liệt kê trong plan (cộng include/header bắt buộc). Cần sửa file ngoài plan hoặc phát hiện plan mâu thuẫn với code thực tế thì dừng ngay, nêu lý do và hỏi.
 3. **Kiểm chứng gom lô 1 lần ở cuối (`AGENTS.md` §4):**
-   - Sau khi đã sửa xong code của tất cả các Step trong phạm vi, mới chạy lệnh build/test ở mục "Kiểm chứng" của `docs/PLAN.md` (`pio run *> .pio/build.log; Get-Content .pio/build.log -Tail 25` và test host nếu có).
-   - Nếu lỗi: đọc lỗi gốc (`Select-String .pio/build.log -Pattern 'error' | Select-Object -First 15`) rồi sửa. Cùng một lỗi quá 2 lần chưa xong thì dừng và báo cáo, không sửa mò.
+   - Sau khi đã sửa xong code của tất cả các Step trong phạm vi, mới chạy lệnh build/test ở mục "Kiểm chứng" của `docs/PLAN.md`. Plan sửa firmware: `pio run *> .pio/build.log; Get-Content .pio/build.log -Tail 25` và test host nếu có. Plan chỉ sửa Markdown/YAML: chỉ chạy đúng lệnh plan chỉ định, không `pio run`.
+   - Nếu build firmware lỗi: đọc lỗi gốc (`Select-String .pio/build.log -Pattern 'error' | Select-Object -First 15`) rồi sửa. Cùng một lỗi quá 2 lần chưa xong thì dừng và báo cáo, không sửa mò.
 4. **Cập nhật `docs/PLAN.md` 1 lần:**
-   - Khi build/test đã pass, cập nhật tất cả các Step vừa hoàn thành từ `[ ]` thành `[x]` và ghi dòng kết quả (RAM/Flash, số test pass) vào `docs/PLAN.md` trong **đúng một thao tác ghi file duy nhất**.
+   - Khi build/test đã pass, cập nhật tất cả các Step vừa hoàn thành từ `[ ]` thành `[x]` và ghi dòng kết quả (RAM/Flash, số test pass) vào `docs/PLAN.md` trong **đúng một thao tác ghi file duy nhất** (gồm cả mục "Phát hiện thêm" nếu có).
 
 ## Cấm
 
 - Không commit, push, upload firmware, không chạy `pio device monitor`.
 - Không đổi chân GPIO, không thêm retry cho lệnh IR (`AGENTS.md` §2-§3).
-- Không mở rộng phạm vi, không refactor hay format lại code ngoài plan. Điều đáng sửa nhưng ngoài plan thì ghi vào mục "Phát hiện thêm" ở cuối `docs/PLAN.md`.
+- Không mở rộng phạm vi, không refactor hay format lại code ngoài plan. Điều đáng sửa nhưng ngoài plan thì ghi vào mục "Phát hiện thêm" ở cuối `docs/PLAN.md` ngay trong thao tác ghi ở Quy trình bước 4 (không ghi thêm lần nữa).
 
 ## Kết thúc
 
