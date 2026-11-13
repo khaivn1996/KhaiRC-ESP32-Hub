@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include "secrets.h"
 #include "WifiService.h"
+#include "OtaSafety.h"
 
 namespace {
     constexpr unsigned long RETRY_MS = 30000;
@@ -25,6 +26,7 @@ void begin() {
             break;
 
         case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+            OtaSafety::wifiDisconnectReason(static_cast<std::uint8_t>(info.wifi_sta_disconnected.reason));
             Serial.printf(
                 "[WiFi EVENT] DISCONNECTED reason=%u\n",
                 static_cast<unsigned>(info.wifi_sta_disconnected.reason)

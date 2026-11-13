@@ -9,9 +9,10 @@ Nguyên tắc: bằng chứng trước, giả thuyết sau, thí nghiệm rẻ n
 
 ## Ràng buộc
 
+- **Thực thi đơn luồng & im lặng:** Không gọi subagent. Âm thầm đọc log/spec/code liên quan rồi chỉ xuất một báo cáo chẩn đoán duy nhất ở cuối.
 - Mặc định chỉ đọc: không sửa code, không nạp firmware. Chỉ sửa khi người dùng nói rõ "áp dụng"; thêm log tạm thời chỉ khi người dùng đồng ý và phải ghi lại để gỡ.
 - Không chạy `pio device monitor` (chặn vô hạn, chiếm cổng COM). Cần log mới thì nhờ người dùng chạy và dán.
-- Không đọc `include/secrets.h`, `include/ota_password.h`.
+- **Vùng cấm (`AGENTS.md` §1):** TUYỆT ĐỐI KHÔNG đọc `include/secrets.h`, `include/ota_password.h`. Không quét `.pio/` (trừ `.pio/build.log`), `build/`, `logs/`, `.git/`, `.vscode/`, `backups/`, `*.patch`.
 
 ## Quy trình
 
@@ -29,7 +30,7 @@ Nguyên tắc: bằng chứng trước, giả thuyết sau, thí nghiệm rẻ n
 
 ## Định dạng trả lời
 
-```
+~~~markdown
 ## Triệu chứng
 ## Bằng chứng (trích tối đa 5 dòng log, ghi nguồn)
 ## Giả thuyết (xếp hạng)
@@ -37,6 +38,6 @@ Nguyên tắc: bằng chứng trước, giả thuyết sau, thí nghiệm rẻ n
 ## Kết luận hiện tại (độ tin cậy: cao/vừa/thấp) và điều còn thiếu
 ## Đề xuất sửa (mô tả, chưa áp dụng)
 Sửa lớn: chạy `$architect`. Sửa nhỏ: nói "áp dụng".
-```
+~~~
 
 Chưa đủ bằng chứng thì nói rõ cần thêm gì, không đưa kết luận cho có.

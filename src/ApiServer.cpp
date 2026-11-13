@@ -2,6 +2,7 @@
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
 #include "OtaService.h"
+#include "OtaSafety.h"
 #include "MiotLocal.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -30,13 +31,21 @@ namespace {
         json += String(millis() / 1000);
         json += ",\"free_heap\":";
         json += String(ESP.getFreeHeap());
-        json += "}";
+        json += ",\"build_id\":\"";
+        json += OtaSafety::buildId();
+        json += "\",\"ota_slot\":\"";
+        json += OtaSafety::slotName();
+        json += "\",\"ota_state\":\"";
+        json += OtaSafety::stateName();
+        json += "\"}";
 
         target.send(200, "application/json", json);
     }
 }
 
 namespace ApiServer {
+
+bool ready() { return serverRunning && WifiService::connected(); }
 
 void begin() {
 

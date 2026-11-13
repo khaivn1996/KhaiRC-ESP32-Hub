@@ -4,4 +4,5 @@
 namespace ApiServer {
     void begin();
     void loop();
+    bool ready();
 }

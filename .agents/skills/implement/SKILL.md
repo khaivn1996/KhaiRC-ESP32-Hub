@@ -1,33 +1,41 @@
 ---
 name: implement
-description: Vai Coder - thực hiện docs/PLAN.md theo từng Step, build và test sau mỗi Step, tick tiến độ vào PLAN.md. Chỉ dùng khi người dùng gọi $implement.
+description: Vai Coder - thực hiện liền mạch toàn bộ các Step được giao trong docs/PLAN.md, chỉ chạy build/test và tick tiến độ một lần ở cuối. Chỉ dùng khi người dùng gọi $implement.
 ---
 
-# Implement (code theo plan)
+# Implement (code theo plan - Silent Batch Mode)
 
-Đối số: `$implement` (các Step còn lại) | `$implement 2` | `$implement 2-3`.
+Đối số: `$implement` (toàn bộ các Step còn `[ ]`) | `$implement 2` | `$implement 2-3`.
 Tiến độ nằm trong `docs/PLAN.md` (ô `[ ]`/`[x]`), nên chat mới có thể làm tiếp mà không cần lịch sử chat cũ.
 
-## Trước khi làm
+## Quy tắc Thực thi Im lặng & Tiết kiệm Token (Bắt buộc)
 
-1. Đọc `docs/PLAN.md`. Không có file thì dừng và bảo người dùng chạy `$architect`. Mục "Câu hỏi mở" còn chưa được trả lời thì dừng và hỏi.
-2. Chọn Step: theo đối số, hoặc Step đầu tiên còn `[ ]`.
-3. Đọc spec theo mục chỉ cho module trong Step (`python tools/spec.py <mục>`). Đọc toàn bộ file đích theo `AGENTS.md` §1.
+- **CẤM gọi Subagent:** Thực hiện 100% thao tác trực tiếp trên luồng agent chính. Không tạo subagent hay background task dưới mọi hình thức.
+- **CẤM báo cáo trung gian (Zero Mid-Turn Commentary):** Khi thực hiện nhiều Step, gọi nối tiếp các công cụ đọc/sửa file cho đến khi xong toàn bộ các Step trong phạm vi. Tuyệt đối không xuất tin nhắn kiểu "Đã xong Step 1, chuyển sang Step 2" xen giữa các lần gọi tool.
+- **Không đọc lặp Spec:** Mọi thông tin thiết kế đã có trong `docs/PLAN.md`. Không tự gọi lại `python tools/spec.py` trừ khi `PLAN.md` yêu cầu rõ.
+- **Vùng cấm (`AGENTS.md` §1):** TUYỆT ĐỐI KHÔNG đọc `include/secrets.h`, `include/ota_password.h`. Không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`, `backups/`, `*.patch`.
 
-## Mỗi Step
+## Quy trình thực hiện (1 mạch duy nhất)
 
-1. Làm đúng việc ghi trong Step, chỉ sửa các file liệt kê (cộng include/header bắt buộc). Cần sửa file ngoài plan thì dừng, nêu lý do và hỏi.
-2. Chạy lệnh "Kiểm" của Step (lệnh build/test ở `AGENTS.md` §4).
-3. Lỗi thì đọc lỗi gốc rồi sửa. Cùng một lỗi quá 2 lần chưa xong thì dừng và báo cáo, không sửa mò.
-4. Pass thì đổi `[ ]` thành `[x]` và thêm dòng `  - Kết quả: <một dòng, ví dụ RAM/Flash hoặc số test pass>`.
-5. Làm Step kế tiếp, trừ khi: Step cần thử trên mạch, Step cần quyết định ngoài plan, hoặc đã xong phạm vi đối số.
+1. **Đọc & Kiểm tra điều kiện:**
+   - Đọc `docs/PLAN.md`. Không có file thì dừng và bảo người dùng chạy `$architect`. Mục "Câu hỏi mở" còn chưa được trả lời thì dừng và hỏi.
+   - Xác định danh sách các Step cần làm (theo đối số, hoặc tất cả các Step còn `[ ]`).
+   - Đọc một lượt toàn bộ các file `.cpp`/`.h` đích cần sửa theo `AGENTS.md` §1 (chú ý ngoại lệ `src/OtaPage.cpp`).
+2. **Sửa code liền mạch (Batch Edit):**
+   - Lần lượt áp dụng chính xác thay đổi của tất cả các Step trong phạm vi vào mã nguồn.
+   - Chỉ sửa các file liệt kê trong plan (cộng include/header bắt buộc). Cần sửa file ngoài plan hoặc phát hiện plan mâu thuẫn với code thực tế thì dừng ngay, nêu lý do và hỏi.
+3. **Kiểm chứng gom lô 1 lần ở cuối (`AGENTS.md` §4):**
+   - Sau khi đã sửa xong code của tất cả các Step trong phạm vi, mới chạy lệnh build/test ở mục "Kiểm chứng" của `docs/PLAN.md` (`pio run *> .pio/build.log; Get-Content .pio/build.log -Tail 25` và test host nếu có).
+   - Nếu lỗi: đọc lỗi gốc (`Select-String .pio/build.log -Pattern 'error' | Select-Object -First 15`) rồi sửa. Cùng một lỗi quá 2 lần chưa xong thì dừng và báo cáo, không sửa mò.
+4. **Cập nhật `docs/PLAN.md` 1 lần:**
+   - Khi build/test đã pass, cập nhật tất cả các Step vừa hoàn thành từ `[ ]` thành `[x]` và ghi dòng kết quả (RAM/Flash, số test pass) vào `docs/PLAN.md` trong **đúng một thao tác ghi file duy nhất**.
 
 ## Cấm
 
-- Không commit, push, upload firmware.
+- Không commit, push, upload firmware, không chạy `pio device monitor`.
 - Không đổi chân GPIO, không thêm retry cho lệnh IR (`AGENTS.md` §2-§3).
-- Không mở rộng phạm vi, không refactor ngoài plan. Điều đáng sửa nhưng ngoài plan thì ghi vào mục "Phát hiện thêm" ở cuối `docs/PLAN.md`.
+- Không mở rộng phạm vi, không refactor hay format lại code ngoài plan. Điều đáng sửa nhưng ngoài plan thì ghi vào mục "Phát hiện thêm" ở cuối `docs/PLAN.md`.
 
 ## Kết thúc
 
-Báo cáo tối đa 8 dòng: Step đã xong, kết quả build/test (kèm RAM/Flash nếu có), việc người dùng phải thử trên mạch, và gợi ý chạy `$reviewer` ở chat mới.
+Xuất **1 báo cáo duy nhất** (tối đa 8 dòng): các Step đã xong, kết quả build/test (kèm RAM/Flash nếu có), việc người dùng phải thử trên mạch, và gợi ý chạy `$reviewer` ở chat mới.

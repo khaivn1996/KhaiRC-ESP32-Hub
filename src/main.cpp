@@ -4,6 +4,7 @@
 #include "WifiService.h"
 #include "ApiServer.h"
 #include "HttpsService.h"
+#include "OtaSafety.h"
 
 void setup() {
     Serial.begin(115200);
@@ -15,7 +16,9 @@ void setup() {
     Serial.println(" Firmware v0.4.0-ota1");
     Serial.println("======================");
 
+    OtaSafety::begin();
     WifiService::begin();
+    OtaSafety::wifiBegin();
     DeviceRegistry::begin();
     ApiServer::begin();
     HttpsService::begin();
@@ -30,6 +33,7 @@ void loop() {
     WifiService::loop();
     ApiServer::loop();
     HttpsService::loop();
+    OtaSafety::loop();
 
     // Manual tests only. CR/LF and unrelated characters are ignored.
     if (Serial.available()) {

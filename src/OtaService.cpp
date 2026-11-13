@@ -7,6 +7,7 @@
 
 #include "OtaPage.h"
 #include "OtaService.h"
+#include "OtaSafety.h"
 
 #if __has_include("ota_password.h")
 #include "ota_password.h"
@@ -183,6 +184,10 @@ void startUpload(WebServer& server) {
         rejectUpload(server, 400, "invalid_firmware_size");
         return;
     }
+    if (!OtaSafety::canAcceptUpdate()) {
+        rejectUpload(server, 503, "ota_safety_not_ready");
+        return;
+    }
     receiving = true;
     uploadStartedAt = millis();
     server.client().setTimeout(5000);
@@ -311,7 +316,8 @@ void finishUpload(WebServer& server) {
 namespace OtaService {
 
 bool available() {
-    return configured() && !restartPending && targetPartition() != nullptr;
+    return configured() && !restartPending && targetPartition() != nullptr &&
+           OtaSafety::canAcceptUpdate();
 }
 
 bool rebootPending() {
@@ -343,6 +349,10 @@ void registerRoutes(WebServer& server) {
     });
     server.on("/api/v1/ota", HTTP_GET, [serverPtr]() {
         if (!authorize(*serverPtr)) {
+            return;
+        }
+        if (!OtaSafety::canAcceptUpdate()) {
+            sendError(*serverPtr, 503, "ota_safety_not_ready");
             return;
         }
         const esp_partition_t* target = targetPartition();

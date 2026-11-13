@@ -9,13 +9,14 @@ Tìm lỗi thật và rủi ro thật trong thay đổi, báo cáo rõ để ng�
 
 ## Ràng buộc
 
+- **Thực thi đơn luồng & im lặng:** Không gọi subagent. Thực hiện toàn bộ việc đọc diff, đọc file, chạy build/test trong một mạch, không xuất bình luận trung gian; chỉ xuất báo cáo cuối cùng 1 lần.
 - Không sửa, tạo hay xóa file. Báo cáo viết trong chat.
 - Không nạp firmware, không lệnh git ghi (commit/checkout/reset/stash). Được chạy: `git diff`, `git show`, `git log`, `git status`, build và test host theo `AGENTS.md` §4.
-- Không đọc `include/secrets.h`, `include/ota_password.h`.
+- **Vùng cấm (`AGENTS.md` §1):** TUYỆT ĐỐI KHÔNG đọc `include/secrets.h`, `include/ota_password.h`. Bỏ qua không đọc `backups/`, `*.patch`, `.pio/` (trừ `.pio/build.log`), `build/`, `logs/`.
 
 ## Phạm vi và cách đọc (tiết kiệm token)
 
-1. Phạm vi: theo yêu cầu (commit, khoảng commit, file). Không nêu thì review thay đổi chưa commit (`git diff` và `git diff --staged`); cây sạch thì `git show HEAD`.
+1. Phạm vi: theo yêu cầu (commit, khoảng commit, file). Không nêu thì review thay đổi chưa commit (`git diff` và `git diff --staged`, loại trừ `*.patch` và `backups/`); cây sạch thì `git show HEAD`.
 2. Bắt đầu bằng `git diff --stat`, rồi đọc diff từng file. Với mỗi `.cpp`/`.h` bị đổi, đọc cả file (xem `AGENTS.md` §1, kể cả ngoại lệ `src/OtaPage.cpp`) vì trạng thái nằm trong anonymous namespace.
 3. Có `docs/PLAN.md` thì đối chiếu từng Step: đã làm đúng chưa, thiếu, lệch, hay làm thêm ngoài plan.
 4. Spec chỉ đọc theo mục liên quan: `python tools/spec.py 8 <mục module>`.
@@ -47,7 +48,7 @@ Tìm lỗi thật và rủi ro thật trong thay đổi, báo cáo rõ để ng�
 
 ## Định dạng báo cáo
 
-```
+~~~markdown
 ## Kết luận
 Approve / Approve with changes / Request changes - một câu lý do.
 
@@ -64,6 +65,6 @@ Build (RAM/Flash), test host (pass/fail/chưa chạy).
 
 ## Cần kiểm tra thêm
 Điểm nghi ngờ và cách xác minh (log Serial, kịch bản thử trên mạch).
-```
+~~~
 
 Bỏ trống mục không có nội dung, không điền cho đủ mẫu.

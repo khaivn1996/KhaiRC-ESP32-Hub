@@ -1,5 +1,6 @@
 #include "HttpsService.h"
 #include "WifiService.h"
+#include "OtaSafety.h"
 #include <Arduino.h>
 
 // Stage 2C: HTTPS read APIs plus Toshiba-only state/FIX/SWING. No MiLife writes or OTA.
@@ -63,9 +64,11 @@ namespace {
         const int count = snprintf(
             response, sizeof(response),
             "{\"status\":\"ok\",\"device\":\"KhaiRC-ESP32-Hub\","
-            "\"phase\":\"https_probe\",\"uptime_sec\":%lu,\"free_heap\":%u}",
+            "\"phase\":\"https_probe\",\"uptime_sec\":%lu,\"free_heap\":%u,"
+            "\"build_id\":\"%s\",\"ota_state\":\"%s\"}",
             static_cast<unsigned long>(millis() / 1000UL),
-            static_cast<unsigned int>(ESP.getFreeHeap()));
+            static_cast<unsigned int>(ESP.getFreeHeap()),
+            OtaSafety::buildId(), OtaSafety::stateName());
         if (count < 0 || static_cast<size_t>(count) >= sizeof(response)) return ESP_FAIL;
         httpd_resp_set_type(request, "application/json");
         httpd_resp_set_hdr(request, "Cache-Control", "no-store");
@@ -299,6 +302,13 @@ namespace {
 }
 
 namespace HttpsService {
+    bool ready() {
+#if KHAIRC_HTTPS_ENABLED
+        return secureServer != nullptr;
+#else
+        return false;
+#endif
+    }
     void begin() {
 #if KHAIRC_HTTPS_ENABLED
         Serial.println("[HTTPS] Stage 2C configured; starting when Wi-Fi is ready");

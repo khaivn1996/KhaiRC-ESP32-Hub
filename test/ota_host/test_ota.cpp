@@ -2,6 +2,7 @@
 #include "WebServer.h"
 #include "esp_ota_ops.h"
 #include "OtaService.h"
+#include "OtaSafety.h"
 #include <algorithm>
 #include <cassert>
 #include <cstring>
@@ -11,6 +12,7 @@ unsigned long fakeMillis = 0;
 FakeSerial Serial;
 FakeESP ESP;
 FakeOta fakeOta;
+bool OtaSafety::safeEnabled = true;
 
 std::vector<uint8_t> firmware(size_t size = 4096) {
     std::vector<uint8_t> bytes(size, 0xa5);
@@ -94,6 +96,12 @@ int main(int argc, char** argv) {
         start(server, data.size());
         error(server, name == "small_partition" ? 413 : 503,
             name == "small_partition" ? "firmware_too_large" : "ota_partition_unavailable");
+        assert(fakeOta.begins == 0);
+    } else if (name == "safety_disabled") {
+        OtaSafety::safeEnabled = false;
+        assert(!OtaService::available());
+        start(server, data.size());
+        error(server, 503, "ota_safety_not_ready");
         assert(fakeOta.begins == 0);
     } else if (name == "wrong_type" || name == "chunked" || name == "multipart") {
         if (name == "wrong_type") server.requestHeaders["Content-Type"] = "application/json";

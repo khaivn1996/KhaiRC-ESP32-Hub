@@ -12,7 +12,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 CASES = """wrong_password missing_password status page oversize overflow invalid_length
-missing_length empty no_partition active_partition small_partition wrong_type chunked
+missing_length empty safety_disabled no_partition active_partition small_partition wrong_type chunked
 multipart wrong_magic wrong_chip no_hash bootloader begin_failure write_failure
 invalid_checksum boot_failure timeout truncated disconnect parser_failure size_mismatch
 success split_header max_size""".split()
