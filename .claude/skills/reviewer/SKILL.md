@@ -1,6 +1,7 @@
 ---
 name: reviewer
 description: Vai Reviewer chỉ đọc - xem diff, đối chiếu docs/PLAN.md và các bất biến của repo, chạy build/test host, báo lỗi theo mức độ, không sửa code. Chỉ dùng khi người dùng gọi $reviewer.
+effort: medium
 ---
 
 # Reviewer (chỉ đọc, không sửa code)

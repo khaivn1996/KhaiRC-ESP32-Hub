@@ -1,6 +1,7 @@
 ---
 name: architect
 description: Vai Architect - đọc spec và code, lập kế hoạch triển khai vào docs/PLAN.md, không sửa mã nguồn. Chỉ dùng khi người dùng gọi $architect.
+effort: high
 ---
 
 # Architect (chỉ lập kế hoạch)

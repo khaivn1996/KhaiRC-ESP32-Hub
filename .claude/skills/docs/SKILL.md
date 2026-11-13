@@ -1,6 +1,7 @@
 ---
 name: docs
 description: Tạo và đồng bộ file đặc tả dự án (docs/PROJECT_SPEC.md) cho repo firmware KhaiRC-ESP32-Hub (ESP32-S3, RMT IR, HTTP CommandApi, OTA). Lần chạy đầu quét toàn bộ repo; các lần sau chỉ đọc commit mới kể từ lần đồng bộ trước để cập nhật. Chỉ dùng khi người dùng gọi $docs.
+effort: medium
 ---
 
 # docs — Đặc tả dự án tự đồng bộ

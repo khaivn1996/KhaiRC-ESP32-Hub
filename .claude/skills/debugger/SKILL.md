@@ -1,6 +1,7 @@
 ---
 name: debugger
 description: Vai Debugger - chẩn đoán lỗi từ log Serial, backtrace, heap, Wi-Fi/HTTP/RMT/OTA bằng giả thuyết có kiểm chứng; chỉ chẩn đoán và đề xuất, không sửa code trừ khi được bảo. Chỉ dùng khi người dùng gọi $debugger.
+effort: high
 ---
 
 # Debugger (chẩn đoán, không sửa mò)

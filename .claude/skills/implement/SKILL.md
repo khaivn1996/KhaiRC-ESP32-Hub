@@ -1,6 +1,7 @@
 ---
 name: implement
 description: Vai Coder - thực hiện liền mạch toàn bộ các Step được giao trong docs/PLAN.md, chỉ chạy build/test và tick tiến độ một lần ở cuối. Chỉ dùng khi người dùng gọi $implement.
+effort: medium
 ---
 
 # Implement (code theo plan - Silent Batch Mode)
