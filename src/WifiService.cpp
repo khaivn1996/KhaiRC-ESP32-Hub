@@ -42,7 +42,9 @@ void begin() {
     }});
     WiFi.setHostname("khairc-hub");
     WiFi.mode(WIFI_STA);
-    WiFi.setAutoReconnect(true);
+    // One retry owner: the loop below. Arduino may still retry the first
+    // failure once, but must not keep reconnecting alongside our timer.
+    WiFi.setAutoReconnect(false);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
     lastRetry = millis();
@@ -72,7 +74,15 @@ void loop() {
 
         lastRetry = millis();
         Serial.println("[WiFi] Reconnecting...");
-        WiFi.reconnect();
+        // reconnect() alone does not cancel an in-progress handshake in
+        // Arduino 3.3.12. Stop that attempt without erasing AP credentials.
+        if (!WiFi.disconnect(false, false)) {
+            Serial.println("[WiFi] Could not stop previous connection attempt");
+            return;
+        }
+        if (!WiFi.reconnect()) {
+            Serial.println("[WiFi] Reconnect failed; waiting for next retry");
+        }
     }
 }
 

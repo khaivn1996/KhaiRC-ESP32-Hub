@@ -132,7 +132,16 @@ void begin() {
     otaStateKnown = result == ESP_OK;
     pending = otaStateKnown && otaState == ESP_OTA_IMG_PENDING_VERIFY;
     confirmed = !pending;
-    esp_app_get_elf_sha256(buildIdBuffer, sizeof(buildIdBuffer));
+    // The SDK's formatted hash is capped by CONFIG_APP_RETRIEVE_LEN_ELF_SHA
+    // (9 in this toolchain), even with a larger destination buffer. Read the
+    // descriptor directly; volatile preserves bytes patched by esptool.
+    const volatile std::uint8_t* hash = esp_app_get_description()->app_elf_sha256;
+    constexpr char hex[] = "0123456789abcdef";
+    for (std::size_t index = 0; index < 8; ++index) {
+        const std::uint8_t byte = hash[index];
+        buildIdBuffer[index * 2] = hex[byte >> 4];
+        buildIdBuffer[index * 2 + 1] = hex[byte & 0x0f];
+    }
     buildIdBuffer[16] = '\0';
     if (part) {
         snprintf(slotBuffer, sizeof(slotBuffer), "%s", part->label);

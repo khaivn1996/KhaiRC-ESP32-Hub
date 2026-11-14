@@ -11,15 +11,26 @@ import tempfile
 from playwright.sync_api import sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-CASES = ("idle", "selection", "success", "wrong_password", "too_large", "partition_limit", "invalid_image", "network_error", "no_reboot")
+CASES = ("idle", "selection", "success", "reverse_success", "pending_then_valid", "pending_forever", "rollback", "wrong_build", "wrong_slot", "missing_metadata", "short_build_id", "wrong_password", "too_large", "partition_limit", "invalid_image", "network_error", "no_reboot")
 
 MOCK = r"""
-window.testState = {posts: 0, uploaded: false, headers: {}, size: 0};
+window.testState = {posts: 0, uploaded: false, headers: {}, size: 0, polls: 0};
 const nativeTimeout = window.setTimeout.bind(window);
 window.setTimeout = (callback, delay) => nativeTimeout(callback, delay === 2000 ? 0 : delay);
 window.fetch = async (url) => {
-  const health = {firmware: '0.4.0-ota1', uptime_sec: 120,
+  if (testState.uploaded) testState.polls++;
+  const health = {status: 'ok', firmware: '0.4.0-ota1', uptime_sec: 120,
+    build_id: testState.uploaded ? '0123456789abcdef' : '1111111111111111',
+    ota_state: 'valid', ota_slot: testState.uploaded ? 'app1' : 'app0',
     boot_id: testState.uploaded && testCase !== 'no_reboot' ? 'new-boot' : 'old-boot'};
+  if (testCase === 'missing_metadata') delete health.build_id;
+  if (testCase === 'short_build_id') health.build_id = 'e56b1df50';
+  if (testCase === 'reverse_success') health.ota_slot = testState.uploaded ? 'app0' : 'app1';
+  if (testState.uploaded) {
+    if (testCase === 'pending_forever' || (testCase === 'pending_then_valid' && testState.polls < 4)) health.ota_state = 'pending_verify';
+    if (testCase === 'wrong_build' || testCase === 'rollback') health.build_id = '1111111111111111';
+    if (testCase === 'wrong_slot' || testCase === 'rollback') health.ota_slot = 'app0';
+  }
   if (url === '/api/v1/health') return {ok: true, json: async () => health};
   if (testCase === 'wrong_password') return {ok: false, status: 401,
     json: async () => ({error: {code: 'unauthorized'}})};
@@ -72,7 +83,9 @@ window.addEventListener('DOMContentLoaded', async () => {
   const transfer = new DataTransfer();
   const size = testCase === 'too_large' ? 4194305 : 1024;
   const filename = testCase === 'selection' ? 'firmware-khairc-'.repeat(12) + '.bin' : 'firmware.bin';
-  transfer.items.add(new File([new Uint8Array(size)], filename, {type: 'application/octet-stream'}));
+  const bytes = new Uint8Array(size);
+  bytes.set([1, 35, 69, 103, 137, 171, 205, 239], 176);
+  transfer.items.add(new File([bytes], filename, {type: 'application/octet-stream'}));
   document.getElementById('firmware').files = transfer.files;
   document.getElementById('firmware').dispatchEvent(new Event('change'));
   if (testCase === 'selection') {
@@ -88,20 +101,28 @@ window.addEventListener('DOMContentLoaded', async () => {
   const text = document.getElementById('status').textContent;
   const expected = {
     success: 'Cập nhật thành công', wrong_password: 'Mật khẩu OTA không đúng',
+    reverse_success: 'Cập nhật thành công', short_build_id: 'Cần nạp bản nền qua USB trước',
+    pending_then_valid: 'Cập nhật thành công', pending_forever: 'chưa xác nhận đúng bản mới',
+    rollback: 'chưa xác nhận đúng bản mới', wrong_build: 'chưa xác nhận đúng bản mới',
+    wrong_slot: 'chưa xác nhận đúng bản mới', missing_metadata: 'Cần nạp bản nền qua USB trước',
     too_large: 'tối đa 4 MiB', partition_limit: 'chỉ nhận tối đa 100 byte',
     invalid_image: 'không phải firmware ứng dụng ESP32-S3 hợp lệ',
     network_error: 'Chưa thể xác nhận kết quả', no_reboot: 'chưa thấy mạch kết nối lại'
   };
-  const posts = ['wrong_password', 'too_large', 'partition_limit'].includes(testCase) ? 0 : 1;
+  const posts = ['missing_metadata', 'short_build_id', 'wrong_password', 'too_large', 'partition_limit'].includes(testCase) ? 0 : 1;
   let ok = text.includes(expected[testCase]) && testState.posts === posts && !document.getElementById('upload').disabled;
   if (posts) ok = ok && testState.method === 'POST' && testState.url === '/update' &&
     testState.headers['Content-Type'] === 'application/octet-stream' &&
     testState.headers['X-OTA-Password'] === 'synthetic-test-password' && testState.size === 1024;
   if (testCase !== 'too_large') ok = ok && key.value === '';
   const state = document.getElementById('feedback').dataset.state;
+  const succeeded = ['success', 'reverse_success', 'pending_then_valid'].includes(testCase);
+  const warned = ['no_reboot', 'pending_forever', 'rollback', 'wrong_build', 'wrong_slot'].includes(testCase);
   ok = ok && !document.getElementById('feedback').hidden &&
-    state === (testCase === 'success' ? 'success' : testCase === 'no_reboot' ? 'warning' : 'error');
-  if (testCase === 'success') ok = ok && document.getElementById('file-name').textContent === 'Chọn file firmware';
+    state === (succeeded ? 'success' : warned ? 'warning' : 'error');
+  if (succeeded) ok = ok && document.getElementById('file-name').textContent === 'Chọn file firmware';
+  if (testCase === 'pending_then_valid') ok = ok && testState.polls === 4;
+  if (warned) ok = ok && testState.polls === 60;
   report(ok);
 });
 """

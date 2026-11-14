@@ -234,13 +234,15 @@ function sendFirmware(file, key) {
     xhr.send(file);
   });
 }
-async function waitForReboot(previousBoot) {
+async function waitForReboot(before, expectedBuild) {
   // Only retry read-only health checks. Never automatically resend firmware.
-  for (let attempt = 0; attempt < 20; ++attempt) {
+  for (let attempt = 0; attempt < 60; ++attempt) {
     await new Promise(resolve => setTimeout(resolve, 2000));
     try {
       const health = await getJson('/api/v1/health');
-      if (health.boot_id && health.boot_id !== previousBoot) {
+      if (health.status === 'ok' && health.boot_id && health.boot_id !== before.boot_id &&
+          health.build_id === expectedBuild && health.ota_state === 'valid' &&
+          ['app0', 'app1'].includes(health.ota_slot) && health.ota_slot !== before.ota_slot) {
         showHealth(health);
         return true;
       }
@@ -269,6 +271,16 @@ form.addEventListener('submit', async event => {
     const info = await getJson('/api/v1/ota', {'X-OTA-Password': password.value});
     if (file.size > info.max_firmware_bytes) throw new Error('Phân vùng OTA trên mạch chỉ nhận tối đa ' + info.max_firmware_bytes + ' byte.');
     const before = await getJson('/api/v1/health');
+    if (!before.boot_id || !/^[0-9a-f]{16}$/.test(before.build_id || '') ||
+        !['app0', 'app1'].includes(before.ota_slot)) {
+      throw new Error('Firmware hiện tại thiếu thông tin OTA Safety. Cần nạp bản nền qua USB trước.');
+    }
+    // ESP-IDF image: 24-byte image header + 8-byte segment header;
+    // app descriptor ELF SHA-256 starts at offset 144 within the descriptor.
+    // Match the same first 8 hash bytes exposed by OtaSafety::buildId().
+    const hash = new Uint8Array(await file.slice(176, 184).arrayBuffer());
+    if (hash.length !== 8) throw new Error('File firmware không đủ thông tin build.');
+    const expectedBuild = Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('');
     await sendFirmware(file, password.value);
     password.value = '';
     progress.value = 100;
@@ -276,13 +288,13 @@ form.addEventListener('submit', async event => {
     connection.textContent = 'Đang khởi động';
     connection.dataset.state = 'checking';
     showStatus('Firmware đã được xác minh. Đang chờ mạch khởi động lại…');
-    if (await waitForReboot(before.boot_id)) {
-      showStatus('Cập nhật thành công. Mạch đã khởi động lại và kết nối Wi-Fi.', 'success');
+    if (await waitForReboot(before, expectedBuild)) {
+      showStatus('Cập nhật thành công. Đúng bản firmware đã chạy ở phân vùng mới và được xác nhận VALID.', 'success');
       firmware.value = '';
       showFile();
     } else {
       connection.textContent = 'Chưa kết nối lại';
-      showStatus('Firmware đã được ghi và xác minh, nhưng chưa thấy mạch kết nối lại. Kiểm tra nguồn, Wi-Fi và IP trên router; không tự động upload lại.', 'warning');
+      showStatus('Firmware đã được ghi và xác minh, nhưng chưa xác nhận đúng bản mới ở trạng thái VALID; có thể chưa thấy mạch kết nối lại hoặc đã rollback. Kiểm tra Serial, nguồn, Wi-Fi và IP trên router; không tự động upload lại.', 'warning');
     }
   } catch (error) {
     showStatus(error.name === 'AbortError' ? 'Mạch không phản hồi đúng hạn. Kiểm tra kết nối Wi-Fi rồi thử lại.' : error.message, 'error');
