@@ -33,7 +33,8 @@ void harden(httpd_req_t* r) {
     httpd_resp_set_hdr(r, "Pragma", "no-cache");
     httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(r, "X-Frame-Options", "DENY");
-    httpd_resp_set_hdr(r, "Referrer-Policy", "no-referrer");
+    // Native login forms need their same-origin Origin (no-referrer makes it null).
+    httpd_resp_set_hdr(r, "Referrer-Policy", "same-origin");
 }
 
 esp_err_t respond(httpd_req_t* r, const char* status, const char* type,
