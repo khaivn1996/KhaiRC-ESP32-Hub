@@ -17,6 +17,8 @@ python tools/create_https_credentials.py
 
 The key, certificate, and generated `include/tls_credentials.h` are Git-ignored. Never post or commit the private key/header. Retain the certificate (public) for a future Android app-specific trust-anchor; plan rotation/renewal. The example domain/IP must be changed if they change.
 
+Lấy SHA-256 fingerprint cho nhóm HTTPS trong app bằng `python tools/create_https_credentials.py --fingerprint-only`: kết quả là 64 ký tự hex in hoa, không dấu `:`, chỉ đọc cert công khai và không ghi file. Khi đổi cert, phải cập nhật fingerprint trong nhóm HTTPS của app.
+
 ## Build before any upload
 
 ```powershell

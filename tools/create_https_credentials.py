@@ -3,15 +3,15 @@
 Run after generating certificate and key with OpenSSL as in docs/HTTPS_STAGE1.md.
 """
 from pathlib import Path
+import argparse
+import base64
+import hashlib
 import sys
 
 root = Path(__file__).resolve().parents[1]
 cert = root / 'include' / 'tls_certificate.pem'
 key = root / 'include' / 'tls_private_key.pem'
 header = root / 'include' / 'tls_credentials.h'
-
-if header.exists():
-    raise SystemExit('tls_credentials.h already exists; refusing to overwrite')
 
 def read_pem(path: Path, kind: str) -> str:
     text = path.read_text(encoding='ascii')
@@ -20,6 +20,24 @@ def read_pem(path: Path, kind: str) -> str:
     if ')KHAIRC_TLS"' in text:
         raise SystemExit('Unsupported PEM content delimiter')
     return text
+
+def fingerprint(pem: str) -> str:
+    encoded = pem.split('-----BEGIN CERTIFICATE-----', 1)[1].split('-----END CERTIFICATE-----', 1)[0]
+    der = base64.b64decode(''.join(encoded.split()), validate=True)
+    return hashlib.sha256(der).hexdigest().upper()
+
+parser = argparse.ArgumentParser(description=__doc__)
+parser.add_argument('--fingerprint-only', action='store_true', help='Print public certificate SHA-256; write nothing')
+args = parser.parse_args()
+if args.fingerprint_only:
+    try:
+        print(fingerprint(read_pem(cert, 'CERTIFICATE')))
+    except FileNotFoundError:
+        raise SystemExit('Missing tls_certificate.pem in include/') from None
+    sys.exit(0)
+
+if header.exists():
+    raise SystemExit('tls_credentials.h already exists; refusing to overwrite')
 
 try:
     certificate = read_pem(cert, 'CERTIFICATE')
@@ -34,3 +52,4 @@ try:
 except FileNotFoundError:
     raise SystemExit('Missing tls_certificate.pem or tls_private_key.pem in include/') from None
 print('Created ignored include/tls_credentials.h. Do not commit or share this file.')
+print('Certificate SHA-256: ' + fingerprint(certificate))

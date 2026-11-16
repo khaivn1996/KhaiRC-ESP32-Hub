@@ -1,0 +1,11 @@
+{
+  "name": "khairc-vault-web",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase": "12.14.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

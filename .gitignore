@@ -13,6 +13,8 @@ backups
 /include/tls_credentials.h
 /include/tls_certificate.pem
 /include/tls_private_key.pem
+/include/firebase_web_config.h
+/web/vault/node_modules/
 
 #Patch
 *.patch

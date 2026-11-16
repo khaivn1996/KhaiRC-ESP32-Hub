@@ -48,6 +48,7 @@ const char kHtml[] PROGMEM = R"KHAIRCSTAGE3A(<!doctype html>
       <input id="key" name="api_key" type="password" minlength="64" maxlength="64" required autocomplete="off" autocapitalize="none" spellcheck="false">
       <button class="full primary" type="submit">ĐĂNG NHẬP BẢO MẬT</button>
     </form>
+    <p class="small"><a href='/ui/vault'>Mở khóa bằng bản sao cloud của app</a></p>
     <p class="small">Mã không được nhúng vào trang hoặc lưu trên iPhone. Cookie phiên có HttpOnly, Secure và SameSite=Strict.</p>
   </section>
   <section id="remote" class="hidden" aria-label="Điều khiển Toshiba">
@@ -70,7 +71,7 @@ const char kHtml[] PROGMEM = R"KHAIRCSTAGE3A(<!doctype html>
     </div>
     <div class="footer"><span class="small">HTTPS · KhaiRC Hub · Chỉ Toshiba</span><button id="logout" class="ghost">Đăng xuất</button></div>
   </section>
-  <p class="small" style="text-align:center">Không có kết nối Internet, VPS, cloud hoặc OTA trong giao diện này.</p>
+  <p class="small" style="text-align:center">Điều khiển trong LAN qua HTTPS. Mở khóa bằng cloud là tùy chọn; không có OTA trong giao diện này.</p>
 </main>
 <script src="/web/app.js" defer></script>
 </body></html>
@@ -185,6 +186,42 @@ const char kScript[] PROGMEM = R"KHAIRCSTAGE3A('use strict';
   boot();
 })();
 )KHAIRCSTAGE3A";
+const char kVaultHead[] PROGMEM = R"KHAIRVAULT(<!doctype html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>KhaiRC · Mở khóa cloud</title><style>
+    :root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;--bg:#081322;--card:#142238;--line:#2a3e54;--accent:#65d6ff;--muted:#a5b6c9;--good:#65e0b6;--bad:#ffa5ac}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% -10%,#1c4163 0%,transparent 40%),linear-gradient(#081322,#0b1829);color:#eff8ff;min-height:100vh;min-height:100dvh}
+    main{max-width:510px;margin:auto;padding:calc(28px + env(safe-area-inset-top)) 18px calc(24px + env(safe-area-inset-bottom))}
+    .header{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px;gap:12px}.eyebrow{font-size:11px;letter-spacing:.17em;text-transform:uppercase;color:var(--accent);font-weight:800}.heading{font-size:26px;letter-spacing:-.04em;margin:5px 0 0}.status-pill{border:1px solid var(--line);border-radius:99px;padding:9px 12px;font-size:12px;white-space:nowrap;color:var(--muted)}.status-pill.live{color:var(--good);border-color:#26775e}
+    .card{background:linear-gradient(150deg,#182b44,#122035);border:1px solid #304258;box-shadow:0 12px 32px #0003;border-radius:23px;padding:20px;margin:0 0 15px}
+    .intro{font-size:13px;color:var(--muted);line-height:1.6;margin:8px 0 20px}.small{font-size:12px;line-height:1.5;color:var(--muted)}label{display:block;font-size:13px;font-weight:650;margin-bottom:9px}
+    input{width:100%;height:54px;background:#0a1728;color:#f5fbff;font-size:16px;border:1px solid #3a526c;padding:0 15px;border-radius:13px;outline:none}input:focus{border-color:var(--accent)}
+    button{appearance:none;-webkit-appearance:none;min-height:48px;border:1px solid #36506a;border-radius:12px;background:#1c3650;color:#ecf7ff;font:700 14px inherit;font-size:14px;font-weight:700;cursor:pointer;touch-action:manipulation;transition:background .12s}
+    button:active:not(:disabled){background:#32749c;transform:scale(.985)}button:disabled{opacity:.36;cursor:not-allowed}button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+    button.primary{background:#1683b4;border-color:#359fcc;color:#fff}button.danger{background:#4a2235;border-color:#7c3e53;color:#ffe5eb}button.selected{background:#245c76;border-color:#54c1ed;color:#fff}
+    .full{width:100%;margin-top:13px}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:17px}.divider{height:1px;background:var(--line);margin:19px 0}
+    .control-head{display:flex;justify-content:space-between;align-items:center}.subtle{font-size:11px;color:#91acc5;letter-spacing:.08em;text-transform:uppercase}.bigtemp{text-align:center;font-size:80px;letter-spacing:-.075em;line-height:1;font-weight:300;margin:20px 0 14px}.degree{font-size:34px;vertical-align:top;margin-top:12px;display:inline-block;letter-spacing:-.03em}
+    .temp-controls{display:grid;grid-template-columns:60px 1fr 60px;gap:12px;align-items:center}.temp-controls button{height:58px;font-size:30px}.fan{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px}.fan button{min-height:47px;font-size:14px;padding:0}.wind{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.wind button{font-size:12px}
+    .notice{background:#10283a;border:1px solid #2f5775;padding:12px 14px;border-radius:13px;font-size:13px;line-height:1.5;margin-top:14px;color:#c8eafa}.notice.error{border-color:#a25b61;background:#3d2230;color:#ffd6da}.notice.ok{border-color:#257c67;color:#bcffe9}
+    .ghost{border:0;background:transparent;color:var(--muted);text-decoration:underline;padding:4px;min-height:30px}.footer{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-top:12px}.hidden{display:none!important}
+    @media(prefers-reduced-motion:reduce){button{transition:none}}@media(max-width:365px){.card{padding:16px}.heading{font-size:23px}.bigtemp{font-size:68px}.wind{grid-template-columns:1fr}.fan{gap:4px}.fan button{font-size:12px}}
+a{color:var(--accent)}</style></head>
+<body><main><div class="eyebrow">KhaiRC · Home Control</div><h1 class="heading">Mở khóa bằng cloud</h1>
+<section class="card" style="margin-top:22px">
+<p class="intro">Đọc bản sao cloud của app KhaiRC. Mật khẩu chủ và key Hub chỉ được xử lý trong bộ nhớ của tab này.</p>
+<button id="google" class="full primary" type="button">Đăng nhập Google</button>
+<form id="vault-form" autocomplete="off">
+<label for="password" style="margin-top:20px">Mật khẩu chủ</label>
+<input id="password" type="password" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+<button id="unlock" class="full primary" type="submit" disabled>Mở khóa</button></form>
+<div id="notice" class="notice" role="status" aria-live="polite">Đăng nhập Google để đọc bản sao cloud.</div>
+<p class="small"><a href="/ui">Quay lại đăng nhập thủ công</a></p>
+</section></main><script type="application/json" id="cfg">)KHAIRVAULT";
+const char kVaultTail[] PROGMEM = R"KHAIRVAULT(</script><script src="/web/vault.js" defer></script></body></html>)KHAIRVAULT";
+const char kVaultMissing[] PROGMEM = R"KHAIRVAULT(<!doctype html><html lang="vi"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>KhaiRC · Cloud</title>
+<p>Firmware chưa có cấu hình Firebase web</p><p><a href="/ui">Quay lại đăng nhập thủ công</a></p></html>)KHAIRVAULT";
 const char kManifest[] PROGMEM = R"KHAIRCSTAGE3A({"name":"KhaiRC · Toshiba AC","short_name":"KhaiRC","start_url":"/ui","scope":"/","display":"standalone","background_color":"#081322","theme_color":"#081322","icons":[{"src":"/web/icon.png","sizes":"180x180","type":"image/png","purpose":"any"},{"src":"/web/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]}
 )KHAIRCSTAGE3A";
 const char kIcon[] PROGMEM = R"KHAIRCSTAGE3A(<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192"><rect width="192" height="192" rx="42" fill="#081322"/><circle cx="96" cy="96" r="60" stroke="#65d6ff" stroke-width="11" fill="none"/><g fill="none" stroke="#65d6ff" stroke-width="9" stroke-linecap="round"><path d="M96 52v88M52 96h88M66 66l60 60M126 66l-60 60"/></g></svg>
@@ -195,6 +232,9 @@ const std::uint8_t kIconPng[] PROGMEM = {0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1
 namespace WebUiPage {
 const char* html() { return kHtml; }
 const char* script() { return kScript; }
+const char* vaultHead() { return kVaultHead; }
+const char* vaultTail() { return kVaultTail; }
+const char* vaultMissing() { return kVaultMissing; }
 const char* manifest() { return kManifest; }
 const char* icon() { return kIcon; }
 const std::uint8_t* iconPng() { return kIconPng; }

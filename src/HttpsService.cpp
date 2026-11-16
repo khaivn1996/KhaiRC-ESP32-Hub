@@ -268,7 +268,7 @@ namespace {
         httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
         config.port_secure = 443;
         config.httpd.stack_size = 8192;
-        config.httpd.max_uri_handlers = 15;
+        config.httpd.max_uri_handlers = 17;
         config.httpd.max_req_hdr_len = 1536;
         config.httpd.max_open_sockets = 2;
         config.httpd.lru_purge_enable = true;

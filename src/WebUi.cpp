@@ -1,5 +1,6 @@
 #include "WebUi.h"
 #include "WebUiPage.h"
+#include "VaultWebBundle.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -10,7 +11,19 @@
 #include "OtaService.h"
 #include "secrets.h"
 
+#if __has_include("firebase_web_config.h")
+#include "firebase_web_config.h"
+#define KHAIRC_VAULT_CONFIGURED 1
+static_assert(sizeof(FIREBASE_WEB_API_KEY) > 1 && sizeof(FIREBASE_WEB_API_KEY) <= 201, "Invalid FIREBASE_WEB_API_KEY length");
+static_assert(sizeof(FIREBASE_AUTH_DOMAIN) > 1 && sizeof(FIREBASE_AUTH_DOMAIN) <= 201, "Invalid FIREBASE_AUTH_DOMAIN length");
+static_assert(sizeof(FIREBASE_PROJECT_ID) > 1 && sizeof(FIREBASE_PROJECT_ID) <= 201, "Invalid FIREBASE_PROJECT_ID length");
+static_assert(sizeof(FIREBASE_APP_ID) > 1 && sizeof(FIREBASE_APP_ID) <= 201, "Invalid FIREBASE_APP_ID length");
+#else
+#define KHAIRC_VAULT_CONFIGURED 0
+#endif
+
 namespace {
+constexpr bool kVaultConfigured = KHAIRC_VAULT_CONFIGURED;
 constexpr size_t MAX_BODY_SIZE = 512;
 constexpr unsigned long SESSION_MS = 15UL * 60UL * 1000UL;
 constexpr size_t SESSION_SLOTS = 2;
@@ -35,6 +48,14 @@ void harden(httpd_req_t* r) {
     httpd_resp_set_hdr(r, "X-Frame-Options", "DENY");
     // Native login forms need their same-origin Origin (no-referrer makes it null).
     httpd_resp_set_hdr(r, "Referrer-Policy", "same-origin");
+}
+
+void hardenVault(httpd_req_t* r) {
+    httpd_resp_set_hdr(r, "Cache-Control", "no-store, max-age=0");
+    httpd_resp_set_hdr(r, "Pragma", "no-cache");
+    httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");
+    httpd_resp_set_hdr(r, "X-Frame-Options", "DENY");
+    httpd_resp_set_hdr(r, "Referrer-Policy", "strict-origin-when-cross-origin");
 }
 
 esp_err_t respond(httpd_req_t* r, const char* status, const char* type,
@@ -165,6 +186,75 @@ esp_err_t view(httpd_req_t* r) {
         "connect-src 'self'; img-src 'self' data:; manifest-src 'self'; "
         "form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
     return respond(r, "200 OK", "text/html; charset=utf-8", WebUiPage::html());
+}
+
+#if KHAIRC_VAULT_CONFIGURED
+esp_err_t vaultJsonString(httpd_req_t* r, const char* value) {
+    if (httpd_resp_send_chunk(r, "\"", 1) != ESP_OK) return ESP_FAIL;
+    char buffer[64];
+    size_t used = 0;
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(value); *p; ++p) {
+        if (used + 6 > sizeof(buffer)) {
+            if (httpd_resp_send_chunk(r, buffer, used) != ESP_OK) return ESP_FAIL;
+            used = 0;
+        }
+        if (*p == '"' || *p == '\\' || *p == '<' || *p < 0x20) {
+            constexpr char hex[] = "0123456789ABCDEF";
+            buffer[used++] = '\\'; buffer[used++] = 'u';
+            buffer[used++] = '0'; buffer[used++] = '0';
+            buffer[used++] = hex[*p >> 4]; buffer[used++] = hex[*p & 15];
+        } else buffer[used++] = static_cast<char>(*p);
+    }
+    if (used && httpd_resp_send_chunk(r, buffer, used) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(r, "\"", 1);
+}
+#endif
+
+esp_err_t vaultView(httpd_req_t* r) {
+    if (!kVaultConfigured) {
+        httpd_resp_set_hdr(r, "Content-Security-Policy",
+            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
+            "connect-src 'self'; img-src 'self' data:; manifest-src 'self'; "
+            "form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        return respond(r, "200 OK", "text/html; charset=utf-8", WebUiPage::vaultMissing());
+    }
+#if KHAIRC_VAULT_CONFIGURED
+    char csp[640];
+    const int count = snprintf(csp, sizeof(csp),
+        "default-src 'none'; script-src 'self' https://apis.google.com; frame-src https://%s; "
+        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com "
+        "https://firestore.googleapis.com; style-src 'unsafe-inline'; img-src 'self' data:; "
+        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'", FIREBASE_AUTH_DOMAIN);
+    if (count < 0 || static_cast<size_t>(count) >= sizeof(csp)) return ESP_FAIL;
+    httpd_resp_set_status(r, "200 OK");
+    httpd_resp_set_type(r, "text/html; charset=utf-8");
+    hardenVault(r);
+    httpd_resp_set_hdr(r, "Content-Security-Policy", csp);
+    if (httpd_resp_send_chunk(r, WebUiPage::vaultHead(), HTTPD_RESP_USE_STRLEN) != ESP_OK ||
+        httpd_resp_send_chunk(r, "{\"apiKey\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
+        vaultJsonString(r, FIREBASE_WEB_API_KEY) != ESP_OK ||
+        httpd_resp_send_chunk(r, ",\"authDomain\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
+        vaultJsonString(r, FIREBASE_AUTH_DOMAIN) != ESP_OK ||
+        httpd_resp_send_chunk(r, ",\"projectId\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
+        vaultJsonString(r, FIREBASE_PROJECT_ID) != ESP_OK ||
+        httpd_resp_send_chunk(r, ",\"appId\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
+        vaultJsonString(r, FIREBASE_APP_ID) != ESP_OK ||
+        httpd_resp_send_chunk(r, "}", 1) != ESP_OK ||
+        httpd_resp_send_chunk(r, WebUiPage::vaultTail(), HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
+    return httpd_resp_send_chunk(r, nullptr, 0);
+#else
+    return ESP_FAIL;
+#endif
+}
+
+esp_err_t vaultScript(httpd_req_t* r) {
+    if (!kVaultConfigured) return error(r, "404 Not Found", "not_configured");
+    httpd_resp_set_status(r, "200 OK");
+    httpd_resp_set_type(r, "text/javascript; charset=utf-8");
+    hardenVault(r);
+    httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
+    return httpd_resp_send(r, reinterpret_cast<const char*>(VaultWebBundle::data()),
+                           static_cast<int>(VaultWebBundle::size()));
 }
 
 esp_err_t javascript(httpd_req_t* r) {
@@ -331,6 +421,8 @@ bool add(httpd_handle_t srv, const char* uri, httpd_method_t method,
 namespace WebUi {
 bool registerRoutes(httpd_handle_t server) {
     return add(server, "/ui", HTTP_GET, view) &&
+           add(server, "/ui/vault", HTTP_GET, vaultView) &&
+           add(server, "/web/vault.js", HTTP_GET, vaultScript) &&
            add(server, "/web/app.js", HTTP_GET, javascript) &&
            add(server, "/web/manifest.webmanifest", HTTP_GET, manifest) &&
            add(server, "/web/icon.svg", HTTP_GET, icon) &&
