@@ -1,8 +1,8 @@
 ---
 spec_version: 1
 project: KhaiRC-ESP32-Hub
-last_synced_commit: d66cbf6733d19ceee4779f4f0019cb010cc47319
-last_synced_at: 2026-11-13
+last_synced_commit: 9a48012ab4a3432ab3885bfd76c2fb52f018c90a
+last_synced_at: 2026-11-17
 last_full_scan_commit: d66cbf6733d19ceee4779f4f0019cb010cc47319
 ---
 
@@ -19,6 +19,7 @@ last_full_scan_commit: d66cbf6733d19ceee4779f4f0019cb010cc47319
 - HTTP/80 với `X-API-Key`: quạt HIGH/SWING/OFF, Toshiba FIX; đọc trạng thái Milife (chỉ đọc). HTTPS/443: Toshiba `state` (power/nhiệt độ/quạt), `fix`, `swing_on`, `swing_off` qua API key hoặc Web UI có session cookie + CSRF.
 - IR phát qua RMT trên GPIO4, có khóa `TxGate` vì cả Arduino loop và task HTTPS có thể phát. `status: sent`, `state_verified: false` chỉ xác nhận phát xong.
 - `OtaSafety` quản lý rollback ảnh `PENDING_VERIFY` (health gate 15 s, hạn 90 s) và ghi nhật ký boot vào NVS; OTA bị khóa nếu không xác minh được rollback.
+- Web Vault tùy chọn: browser đăng nhập Google, đọc Firestore và giải mã để đăng nhập Hub; firmware không kết nối Firebase (§5.12).
 - Không phát IR tự động khi khởi động; Serial `s`/`S` phát TAIZ SWING, `f`/`F` phát Toshiba FIX. Chưa có Tuya cloud, học/thu IR, lưu trạng thái thiết bị.
 
 Nguồn: `platformio.ini`, `src/main.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/OtaSafety.cpp`.
@@ -50,24 +51,34 @@ Nguồn: `platformio.ini`, `src/IrDiagnostics.cpp`, `src/main.cpp`, `AGENTS.md`.
 
 Build trên PowerShell: `pio run *> .pio/build.log; Get-Content .pio/build.log -Tail 25`; lỗi thì `Select-String .pio/build.log -Pattern 'error' | Select-Object -First 15`, không in cả log. Không có `pio` trong PATH thì gọi `& "$env:USERPROFILE\.platformio\penv\Scripts\pio.exe"`. Nạp `pio run -t upload` chỉ khi người dùng yêu cầu; `pio device monitor -b 115200` chặn vô hạn, nhờ người dùng dán log. Cùng một lỗi sửa quá 2 lần thì dừng và báo cáo. Task chỉ đổi Markdown/YAML cấu hình agent không chạy `pio run`, kiểm chứng bằng `git diff --stat`, quét ký tự ẩn và số dòng rào code chẵn (`AGENTS.md` §4). Cần credential cục bộ (§7).
 
-Test OTA host: `python tools/test-ota.py --cxx <g++>` chạy 33 kịch bản (gồm `safety_disabled`) trên `src/OtaService.cpp` thật với stub HTTP/flash và stub `test/ota_host/OtaSafety.h` (`safeEnabled`); `g++` ở `$env:USERPROFILE\.platformio\packages\toolchain-gccmingw32\bin`. Test trang: `python tools/test-ota-page.py --browser <chrome-hoac-msedge>` — 9 kịch bản × desktop/mobile = 18 lượt Playwright với mạng giả lập; tùy chọn `--screenshots <thu-muc>`. Chưa có test host cho HTTPS, Web UI, MiotLocal, `ToshibaCodec` hay `OtaSafetyPolicy`. Chưa có CI. Lần sync không chạy build/test.
+Test OTA host: `python tools/test-ota.py --cxx <g++>` chạy 33 kịch bản (gồm `safety_disabled`) trên `src/OtaService.cpp` thật với stub HTTP/flash và stub `test/ota_host/OtaSafety.h` (`safeEnabled`); `g++` ở `$env:USERPROFILE\.platformio\packages\toolchain-gccmingw32\bin`. Test trang: `python tools/test-ota-page.py --browser <chrome-hoac-msedge>` — 17 kịch bản × desktop/mobile = 34 lượt Playwright với mạng giả lập; tùy chọn `--screenshots <thu-muc>`. Chưa có test host cho handler C++ HTTPS/Web UI, MiotLocal, `ToshibaCodec` hay `OtaSafetyPolicy`. Chưa có CI. Lần sync không chạy build/test.
+
+Kiểm thử bổ sung (không thay thế thử trên board):
+
+- `python tools/test-wifi.py --cxx <g++>`: module thật, credential giả và driver bận mô phỏng; kiểm tra hủy trước reconnect, nhịp retry, online, lỗi và tràn millis.
+- `python tools/test-web-login.py [--browser <chrome-hoac-msedge>] [--openssl <openssl>]`: Playwright, mặc định WebKit profile iPhone 13; cần browser và OpenSSL cho HTTPS localhost. Tái hiện no-referrer → Origin null/403, kiểm tra same-origin, key sai, login/303, cookie, reload/logout và không phát IR; backend mô phỏng.
+- `python tools/test-vault-web.py`: chạy Node codec/crypto độc lập; thiếu `web/vault/test/kat-app.json` thì skip KAT app.
 
 Tiện ích khác:
 - `tools/monitor-hub.ps1 -HubIP "<IP-hub>" [-DurationMinutes 10] [-IntervalSeconds 60]`: GET health rồi system qua HTTP/80, ghi CSV vào `logs/` (cột `Time`, `Status`, `UptimeSec`, `FreeHeapBytes`, `RSSIdBm`, `IPAddress`, `Error`; trạng thái `OK`/`ERROR`/`RESET` suy từ uptime giảm). Không gửi API key.
 - `tools/spec.py`: in mục lục spec; `python tools/spec.py 0 8 9 5.5` đọc chọn lọc; thiếu spec trả mã 1, không thấy mục trả mã 2.
-- `tools/create_https_credentials.py`: đọc `include/tls_certificate.pem` + `include/tls_private_key.pem` (người dùng tự tạo bằng OpenSSL theo `docs/HTTPS_STAGE1.md`), sinh `include/tls_credentials.h` chứa `HUB_TLS_CERT_PEM`, `HUB_TLS_KEY_PEM`; từ chối ghi đè, không in khóa. Cả ba file bị Git bỏ qua.
+- `tools/create_https_credentials.py`: đọc `include/tls_certificate.pem` + `include/tls_private_key.pem` (người dùng tự tạo bằng OpenSSL theo `docs/HTTPS_STAGE1.md`), sinh `include/tls_credentials.h` chứa `HUB_TLS_CERT_PEM`, `HUB_TLS_KEY_PEM`; từ chối ghi đè, không in khóa. Cả ba file bị Git bỏ qua. `--fingerprint-only` chỉ đọc cert công khai, in SHA-256 DER (64 hex in hoa, không dấu `:`), không ghi file; khi sinh header cũng in fingerprint.
 
-Nguồn: `platformio.ini`, `tools/*.py`, `tools/monitor-hub.ps1`, `test/ota_host/**`, `docs/OTA.md`, `docs/HTTPS_STAGE1.md`, `AGENTS.md`.
+Bundle vault: `python tools/build-vault-web.py` chạy npm ci/esbuild, ghim Firebase `12.14.0`, esbuild `0.28.2`; firmware dùng bundle đã commit nên build thường không cần Node (§5.12).
+
+Nguồn: `platformio.ini`, `web/vault/package.json`, `tools/*.py`, `tools/monitor-hub.ps1`, `test/ota_host/**`, `docs/OTA.md`, `docs/HTTPS_STAGE1.md`, `AGENTS.md`.
 
 ## 3. Cấu trúc thư mục & kiến trúc
 
-HEAD có 76 file tracked: src 13 cpp, include 17 header, test 7, tools 6, docs 4, `.agents` 10, `.claude` 10 (bản sao skill cho Claude CLI), `backups` 3 (ảnh firmware/bản sao nguồn cũ, không quét), lib 1, `.vscode` 1, 4 file gốc (`AGENTS.md`, `CLAUDE.md`, `.gitignore`, `platformio.ini`).
+HEAD có 90 file tracked: src 14 cpp, include 19 header, test 7, tools 10, docs 5, web 6, `.agents` 10, `.claude` 10 (bản sao skill cho Claude CLI), `backups` 3 (ảnh firmware/bản sao nguồn cũ, không quét), lib 1, `.vscode` 1, 4 file gốc (`AGENTS.md`, `CLAUDE.md`, `.gitignore`, `platformio.ini`).
 
 | Vị trí | Vai trò |
 |---|---|
 | `src/main.cpp` | Điểm vào Arduino, thứ tự khởi tạo/polling, phím thử IR thủ công |
-| `src/`, `include/` | Module: Wi-Fi, ApiServer, CommandApi, DeviceRegistry, IrDiagnostics (+`ToshibaCodec` header-only), OtaService, OtaPage, OtaSafety (+`OtaSafetyPolicy` header-only), HttpsService, WebUi, WebUiPage, MiotLocal |
-| `tools/` | Monitor HTTP, đọc spec, test OTA host/trang, sinh header TLS, sửa IntelliSense |
+| `src/`, `include/` | Module: Wi-Fi, ApiServer, CommandApi, DeviceRegistry, IrDiagnostics (+`ToshibaCodec` header-only), OtaService, OtaPage, OtaSafety (+`OtaSafetyPolicy` header-only), HttpsService, WebUi, WebUiPage, MiotLocal, VaultWebBundle |
+| `tools/` | Monitor HTTP, đọc spec, test OTA/Wi-Fi/login/vault, build bundle, sinh header TLS, sửa IntelliSense |
+| `web/vault/` | Source JS, dependency/lockfile và test Node; bundle sinh trong `include/VaultWebBundle.h`, `src/VaultWebBundle.cpp` |
+| `docs/WEB_VAULT.md` | Cấu hình Firebase, crypto/codec, KAT và thử board |
 | `test/ota_host/` | Test host OTA và stub `Arduino.h`, `WebServer.h`, `esp_ota_ops.h`, `esp_app_format.h`, `OtaSafety.h` |
 | `docs/` | `PROJECT_SPEC.md`, `OTA.md`, `HTTPS_STAGE1.md` (hướng dẫn HTTPS giai đoạn 1), `CODEX_WORKFLOW.md` (hướng dẫn người dùng về quy trình Codex) |
 | `.agents/skills/**`, `.claude/skills/**`, `AGENTS.md`, `CLAUDE.md` | Năm skill phân vai và chỉ thị agent cho Codex/Claude CLI |
@@ -75,7 +86,7 @@ HEAD có 76 file tracked: src 13 cpp, include 17 header, test 7, tools 6, docs 4
 Luồng phụ thuộc:
 - `main → OtaSafety, WifiService, DeviceRegistry, ApiServer, HttpsService, IrDiagnostics`.
 - `ApiServer → WifiService, DeviceRegistry, CommandApi, MiotLocal, IrDiagnostics, OtaService, OtaSafety`; `OtaService → OtaPage, OtaSafety, esp_ota_*`.
-- `HttpsService → WifiService, DeviceRegistry, IrDiagnostics, MiotLocal, OtaService, OtaSafety, WebUi`; `WebUi → WebUiPage, IrDiagnostics, OtaService`.
+- `HttpsService → WifiService, DeviceRegistry, IrDiagnostics, MiotLocal, OtaService, OtaSafety, WebUi`; `WebUi → WebUiPage, VaultWebBundle, IrDiagnostics, OtaService`; browser vault → Firebase Auth/Firestore REST/WebCrypto → `/web/login`.
 - `CommandApi → DeviceRegistry, IrDiagnostics`; `DeviceRegistry → IrDiagnostics, MiotLocal`; `IrDiagnostics → ToshibaCodec, RMT`.
 - `OtaSafety → OtaSafetyPolicy, ApiServer::ready(), HttpsService::ready(), IrDiagnostics::isReady(), Preferences`; `WifiService` gửi lý do disconnect cho `OtaSafety`.
 
@@ -103,8 +114,8 @@ Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`, `src/IrDia
 ### 5.1 Wi-Fi (`WifiService`)
 
 - API: `void WifiService::begin();`, `void WifiService::loop();`, `bool WifiService::connected();`.
-- `begin()` đăng ký `WiFi.onEvent` log `[WiFi EVENT]` cho STA_START/CONNECTED/DISCONNECTED(reason)/GOT_IP; khi DISCONNECTED gọi `OtaSafety::wifiDisconnectReason(reason)`. Sau đó hostname `khairc-hub`, `WIFI_STA`, `setAutoReconnect(true)`, `WiFi.begin(WIFI_SSID, WIFI_PASSWORD)`; không chờ kết nối.
-- `loop()` log online/offline, in IP khi vừa online; offline và đủ `RETRY_MS=30000` thì `WiFi.reconnect()`.
+- `begin()` đăng ký `WiFi.onEvent` log `[WiFi EVENT]` cho STA_START/CONNECTED/DISCONNECTED(reason)/GOT_IP; khi DISCONNECTED gọi `OtaSafety::wifiDisconnectReason(reason)`. Sau đó hostname `khairc-hub`, `WIFI_STA`, `setAutoReconnect(false)`, `WiFi.begin(WIFI_SSID, WIFI_PASSWORD)`; không chờ kết nối.
+- `loop()` log online/offline, in IP khi vừa online; offline và đủ `RETRY_MS=30000` thì `WiFi.disconnect(false, false)` hủy handshake cũ, giữ credential AP, rồi `WiFi.reconnect()`. Disconnect lỗi thì bỏ reconnect; lỗi driver được log và chờ chu kỳ sau. Loop sở hữu retry; comment ghi Arduino 3.3.12 vẫn có thể tự thử một lần sau lỗi đầu tiên.
 - Không có AP, provisioning, mDNS hay task riêng.
 
 Nguồn: `include/WifiService.h`, `src/WifiService.cpp`.
@@ -178,7 +189,7 @@ Nguồn: `include/OtaService.h`, `src/OtaService.cpp`, `test/ota_host/test_ota.c
 ### 5.7 Trang OTA (`OtaPage`)
 
 - API: `const char* OtaPage::html();` — HTML/CSS/JS/SVG nhúng PROGMEM, không CDN; favicon SVG data URI.
-- Giao diện tiếng Việt, kiểm tra `.bin` không rỗng ≤4 MiB và mật khẩu; GET `/api/v1/ota` (auth/giới hạn), GET health lấy boot ID, XHR POST `/update` một lần, timeout 150 s. Sau upload tối đa 20 GET health cách 2 s, mỗi GET timeout 5 s; chỉ báo thành công khi boot ID đổi.
+- Giao diện tiếng Việt, kiểm tra `.bin` không rỗng ≤4 MiB và mật khẩu; GET `/api/v1/ota` (auth/giới hạn), GET health kiểm tra metadata nền (`boot_id`, `build_id` 16 hex thường, slot `app0`/`app1`); thiếu thì chặn trước POST, yêu cầu nạp nền qua USB. Đọc 8 byte hash tại offset 176–183 của file để lấy expected build; XHR POST `/update` một lần, timeout 150 s. Sau upload tối đa 60 GET health cách 2 s, mỗi GET timeout 5 s; chỉ thành công khi `status:ok`, boot ID đổi, build khớp, slot đổi giữa `app0`/`app1` và `ota_state:valid`. Pending/rollback/sai build hoặc slot không được báo thành công.
 - Xóa ô mật khẩu sau lượt gửi, không cookie/localStorage; khóa gửi trùng khi busy. Dùng đường dẫn tương đối nên chạy được trên cổng 8081.
 
 Nguồn: `include/OtaPage.h`, `src/OtaPage.cpp`, `tools/test-ota-page.py`.
@@ -187,7 +198,7 @@ Nguồn: `include/OtaPage.h`, `src/OtaPage.cpp`, `tools/test-ota-page.py`.
 
 - API: `void begin();` (gọi trước Wi-Fi), `void wifiBegin();`, `void loop();` (sau ApiServer/Https loop), `void wifiDisconnectReason(uint8_t)` (chỉ ghi atomic trong callback), `bool canAcceptUpdate();`, `bool pendingVerification();`, `const char* stateName();`, `slotName();`, `buildId();`.
 - Ghi đè hook C yếu `extern "C" bool verifyRollbackLater()` trả `true` để Arduino không tự đánh dấu VALID trong `initArduino()`.
-- `begin()`: đọc trạng thái OTA của partition đang chạy, `buildId` = 16 ký tự đầu ELF SHA-256 (`esp_app_get_elf_sha256`), `slotName` = nhãn partition. Mở NVS namespace `ota_safe`; bản ghi hợp lệ cũ chép sang key `prev`, bản ghi mới ở key `now` (`seq+1`). Nếu `PENDING_VERIFY`: tạo `verifyMutex` và task `ota_guard`; thất bại thì `ESP.restart()` để bootloader rollback.
+- `begin()`: đọc trạng thái OTA của partition đang chạy, `buildId` = 16 ký tự đầu ELF SHA-256 (đọc trực tiếp 8 byte đầu `esp_app_get_description()->app_elf_sha256` qua con trỏ volatile, tránh formatter SDK bị giới hạn `CONFIG_APP_RETRIEVE_LEN_ELF_SHA`), `slotName` = nhãn partition. Mở NVS namespace `ota_safe`; bản ghi hợp lệ cũ chép sang key `prev`, bản ghi mới ở key `now` (`seq+1`). Nếu `PENDING_VERIFY`: tạo `verifyMutex` và task `ota_guard`; thất bại thì `ESP.restart()` để bootloader rollback.
 - Stage nhật ký tăng dần (chỉ ghi khi tăng): 1 BOOT, 2 Wi-Fi begin, 3 GOT_IP, 4 HTTP/OTA chạy, 5 TLS chạy, 6 đã xác nhận VALID. Lý do disconnect mới được ghi khi thay đổi.
 - `loop()` khi pending: `HealthGate` yêu cầu Wi-Fi + IP + `ApiServer::ready()` + `HttpsService::ready()` + `IrDiagnostics::isReady()` liên tục `STABLE_MS=15000`, trước `DEADLINE_MS=90000` kể từ boot; thử một lần duy nhất `esp_ota_mark_app_valid_cancel_rollback()` dưới mutex. `ota_guard` sau 90 s nếu vẫn pending gọi `esp_ota_mark_app_invalid_rollback_and_reboot()`; thất bại thì chỉ log (có thể cần USB).
 - `canAcceptUpdate()` chỉ đúng khi build có `CONFIG_APP_ROLLBACK_ENABLE`, hook đã được gọi, không pending, trạng thái `VALID`/`UNDEFINED` và có ≥2 app partition; ngược lại OTA bị khóa (fail closed).
@@ -200,17 +211,18 @@ Nguồn: `include/OtaSafety.h`, `include/OtaSafetyPolicy.h`, `src/OtaSafety.cpp`
 - API: `void begin();`, `void loop();`, `bool ready();`.
 - Chỉ biên dịch phần TLS khi có cả `<esp_https_server.h>` và `tls_credentials.h` cục bộ (`KHAIRC_HTTPS_ENABLED`); thiếu thì log disabled và `ready()` luôn false.
 - `loop()`: mất Wi-Fi → `httpd_ssl_stop`, `WebUi::resetSessions()`; có Wi-Fi và chưa chạy → thử start, lần thử lại cách `RETRY_MS=30000`.
-- Cấu hình: `port_secure=443`, stack 8192, `max_uri_handlers=15`, `max_req_hdr_len=1536`, `max_open_sockets=2`, `lru_purge_enable`. Cert/khóa từ `HUB_TLS_CERT_PEM`/`HUB_TLS_KEY_PEM`. Đăng ký lỗi bất kỳ route nào → dừng server (fail closed).
+- Cấu hình: `port_secure=443`, stack 8192, `max_uri_handlers=17`, `max_req_hdr_len=1536`, `max_open_sockets=2`, `lru_purge_enable`. Cert/khóa từ `HUB_TLS_CERT_PEM`/`HUB_TLS_KEY_PEM`. Đăng ký lỗi bất kỳ route nào → dừng server (fail closed).
 - Route API (§6.5): health (rút gọn, `phase:"https_probe"`), system, capabilities, devices, Milife state, POST commands chỉ cho Toshiba; cùng route Web UI. Không có OTA, raw IR, quạt, Daikin hay ghi Milife qua HTTPS.
 
 Nguồn: `include/HttpsService.h`, `src/HttpsService.cpp`, `tools/create_https_credentials.py`.
 
 ### 5.10 Web UI (`WebUi`, `WebUiPage`)
 
-- API: `bool WebUi::registerRoutes(httpd_handle_t server);` (chỉ trên TLS), `void WebUi::resetSessions();`; `WebUiPage::html()`, `script()`, `manifest()`, `icon()`, `iconPng()`, `iconPngLen()` (PROGMEM, raw string `R"KHAIRCSTAGE3A(`).
+- API: `bool WebUi::registerRoutes(httpd_handle_t server);` (chỉ trên TLS), `void WebUi::resetSessions();`; `WebUiPage::html()`, `script()`, `manifest()`, `icon()`, `iconPng()`, `iconPngLen()`, `vaultHead()`, `vaultTail()`, `vaultMissing()` (PROGMEM, raw string `R"KHAIRCSTAGE3A(`).
 - Đăng nhập: form `api_key=` (urlencoded) POST `/web/login`, so XOR với `HUB_API_KEY`; 5 lần sai → khóa 30 s (`429 try_later`). Thành công: session 32 hex ngẫu nhiên, cookie `khairc_sid` `Secure; HttpOnly; SameSite=Strict; Max-Age=900`, 2 slot xoay vòng, hết hạn 15 phút; token CSRF riêng lấy qua GET `/web/session`.
 - POST `/web/command`/`/web/logout` cần session + header `X-CSRF-Token` khớp + `Origin` (nếu có) bằng `https://<Host>`. Command chỉ Toshiba: `state` (đúng 4 field `action`, `power`, `temperature_c`, `fan_speed`), `fix`/`swing_on`/`swing_off` (chỉ field `action`). Content-Type phải đúng `application/json`, body ≤512, không NUL, `NestingLimit(3)`.
-- Header bảo mật: no-store, nosniff, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`; trang `/ui` có CSP `script-src 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
+- Header bảo mật: no-store, nosniff, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` để native login form giữ Origin cùng nguồn; trang `/ui` có CSP `script-src 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
+- `/ui` có liên kết tới vault (§5.12), dùng lại session/login hiện có.
 - JS trang: nút bật/tắt/làm lạnh/nhiệt độ/quạt gửi `state`, nút FIX/SWING; trạng thái hiển thị là giả định phía client. Lỗi/không rõ → khóa "CHƯA RÕ", không tự gửi lại. PWA manifest `start_url:/ui`.
 
 Nguồn: `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPage.cpp`.
@@ -223,6 +235,19 @@ Nguồn: `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPa
 - Route HTTP/80 `GET /api/v1/devices/milife_plug_10a/state` (cần `X-API-Key`); HTTPS có route tương đương trong `HttpsService`.
 
 Nguồn: `include/MiotLocal.h`, `src/MiotLocal.cpp`, `include/miot_config.example.h`.
+
+### 5.12 Web Vault (`VaultWebBundle`, JS browser)
+
+- API: `const std::uint8_t* VaultWebBundle::data();`, `std::size_t VaultWebBundle::size();`; mảng gzip PROGMEM sinh bằng `tools/build-vault-web.py`, không sửa tay. Tool tạo IIFE ES2020, gzip level 9, `mtime=0`, từ chối >120 KiB; commit source/bundle/lockfile cùng nhau.
+- `/ui/vault` công khai, không cần session Hub; WebUi stream HTML + JSON cấu hình đã escape. `/web/vault.js` trả gzip. Thiếu cấu hình thì trang hướng dẫn đăng nhập thủ công, script trả `404 not_configured`.
+- Firebase Google popup với `inMemoryPersistence`; yêu cầu secure context/WebCrypto và tab thường (standalone/PWA bị chặn). Browser REST GET duy nhất `users/{uid}/vault/main` trong Firestore `(default)` bằng Bearer idToken; firmware không truy cập cloud, mã web không ghi Firestore.
+- `openVault(password, uid, doc)` nhận doc thường hoặc typed fields Firestore: `schemaVersion=1`, `kdfAlg=PBKDF2-SHA256`, iterations nguyên 1..2.000.000, salt 16 byte, IV 12 byte, ciphertext kèm tag 16..1.048.576 byte. Password UTF-8 → PBKDF2 → AES-256-GCM, tag 128 bit, AAD `khairc-vault-v1|uid`.
+- `decodeVault(bytes)` đọc version 1, TUYA/HUB/HTTPS/WOL/LABELS, cờ 0/1, Java modified UTF-8; từ chối byte thừa/nhóm cụt/count LABELS ngoài 0..6/key trùng. Key Hub đúng 64 ASCII in được; thiếu HUB hoặc giải mã lỗi không POST login.
+- POST urlencoded tới `/web/login` cùng origin; redirect thành công về `/ui` dùng cookie hiện có. Không tự retry vault/login. Sau lượt mở khóa xóa ô password, ghi đè plaintext, bỏ tham chiếu và Firebase sign-out. Chuỗi JS không bảo đảm xóa vật lý trước GC; mã ứng dụng không lưu key/password vào browser storage.
+- Riêng vault đã cấu hình dùng `Referrer-Policy: strict-origin-when-cross-origin`, CSP cho `apis.google.com`, iframe auth domain, Identity Toolkit/Token Service/Firestore; no-store/nosniff/frame DENY. `/ui` giữ CSP cũ. Hành vi storage của popup bên ngoài và tương thích Android/Safari cần thử (§10).
+
+Nguồn: `include/VaultWebBundle.h`, `src/VaultWebBundle.cpp`, `src/WebUi.cpp`, `src/WebUiPage.cpp`, `web/vault/src/*.js`, `web/vault/package.json`, `tools/build-vault-web.py`, `docs/WEB_VAULT.md`.
+
 
 ## 6. Giao tiếp ngoài
 
@@ -280,7 +305,7 @@ Nguồn: `src/WifiService.cpp`, `src/MiotLocal.cpp`, `src/main.cpp`.
 |---|---|
 | GET `/` | `200` JSON `{"service":"KhaiRC-ESP32-Hub","status":"ok"}` |
 | GET `/update` | HTML công khai; no-store/nosniff/frame DENY; CSP inline script/style, `img-src data:`, kết nối cùng origin |
-| GET `/api/v1/health` | Giống cổng 80 (trang OTA dùng để so boot ID) |
+| GET `/api/v1/health` | Giống cổng 80 (trang OTA đối chiếu boot/build/slot/VALID theo §5.7) |
 | GET `/api/v1/ota` | `X-OTA-Password`; `503 ota_safety_not_ready` nếu safety khóa; trả `max_firmware_bytes` = min(4 MiB, vùng đích) |
 | POST `/update` | Mật khẩu OTA, `application/octet-stream`, Content-Length bắt buộc; không multipart/chunked; `200` `status:updated`, `rebooting:true` |
 
@@ -300,6 +325,7 @@ Chỉ có khi build kèm `tls_credentials.h` (§5.9). Chứng chỉ tự ký the
 | GET `/api/v1/system`, `/api/v1/capabilities`, `/api/v1/devices` | Công khai, cùng nội dung với cổng 80 |
 | GET `/api/v1/devices/milife_plug_10a/state` | Như cổng 80 |
 | POST `/api/v1/commands` | Xem dưới |
+| GET `/ui/vault`, `/web/vault.js` | Công khai, vault tùy chọn (§5.12), không cần session Hub |
 | GET `/ui`, `/web/app.js`, `/web/manifest.webmanifest`, `/web/icon.svg`, `/web/icon.png`, `/web/session`; POST `/web/login`, `/web/logout`, `/web/command` | Web UI (§5.10) |
 
 POST `/api/v1/commands` (HTTPS): `X-API-Key` (đúng 64 byte, XOR) → `401`; có `Transfer-Encoding` → `400 invalid_command`; Content-Type như HTTP → `415`; `content_len` ≤0 → `400 invalid_json`, >512 → `413`; đọc đủ body (lỗi đọc → đóng socket, không phản hồi); NUL nhúng/JSON sai → `400 invalid_json`; thiếu/không phải string → `400 invalid_command`; `device_id` khác `toshiba_ac` hoặc action ngoài `state`/`fix`/`swing_on`/`swing_off` → `422`. `state` phải có đúng 5 field (`device_id`, `action`, `power` bool, `temperature_c` int 17–30, `fan_speed` `auto`/`1`–`5`); action khác đúng 2 field; sai → `422`. Chờ reboot OTA hoặc IR chưa sẵn sàng/`TxGate` bận → `503 device_not_ready`; lỗi phát → `500 ir_send_failed`. Thành công giống HTTP với `device_id:"toshiba_ac"`, `state_verified:false`. Lỗi route không khớp dùng mặc định của `esp_http_server`.
@@ -319,11 +345,13 @@ Nguồn: `src/HttpsService.cpp`, `src/WebUi.cpp`, `docs/HTTPS_STAGE1.md`.
 | `include/secrets.h` | `WIFI_SSID`, `WIFI_PASSWORD`, `HUB_API_KEY` (đúng 64 ký tự, `static_assert`) | `WifiService`, `CommandApi`, `MiotLocal`, `HttpsService`, `WebUi` | `include/secrets.example.h` | Không build được |
 | `include/ota_password.h` | `HUB_OTA_PASSWORD` (1–128 ký tự ASCII 33–126) | `OtaService` | `include/ota_password.example.h` | OTA bị khóa |
 | `include/miot_config.h` | `MILIFE_IP`, `MILIFE_DID`, `MILIFE_TOKEN` (32 hex, token miIO LAN) | `MiotLocal` | `include/miot_config.example.h` | Milife `not_configured` |
+| `include/firebase_web_config.h` | `FIREBASE_WEB_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID` (mỗi chuỗi 1–200 byte) | `WebUi` | `include/firebase_web_config.example.h` | Vault báo chưa cấu hình; đăng nhập thủ công vẫn dùng được |
 | `include/tls_credentials.h` (+ `tls_certificate.pem`, `tls_private_key.pem`) | `HUB_TLS_CERT_PEM`, `HUB_TLS_KEY_PEM` | `HttpsService` | Sinh bằng `tools/create_https_credentials.py` | HTTPS tắt |
 
+- Vault mã hóa nằm trên Firestore, browser đọc; không thêm NVS trên ESP32. Firebase Web app config được đưa vào HTML khi bật vault, file local được ignore; không ghi giá trị thật vào spec. Auth domain phải là hostname không scheme/path theo tài liệu; code chỉ kiểm tra độ dài.
 - `logs/hub-monitor-<timestamp>.csv` là đầu ra của monitor trên PC, không phải storage ESP32.
 
-Nguồn: `platformio.ini`, `.gitignore`, `src/OtaSafety.cpp`, `include/*.example.h`, `src/MiotLocal.cpp`, `src/HttpsService.cpp`, `src/OtaService.cpp`, `docs/OTA.md`.
+Nguồn: `platformio.ini`, `.gitignore`, `src/OtaSafety.cpp`, `include/*.example.h`, `src/MiotLocal.cpp`, `src/HttpsService.cpp`, `src/OtaService.cpp`, `src/WebUi.cpp`, `docs/OTA.md`, `docs/WEB_VAULT.md`.
 
 ## 8. Quy ước & pattern của codebase
 
@@ -333,7 +361,7 @@ Nguồn: `platformio.ini`, `.gitignore`, `src/OtaSafety.cpp`, `include/*.example
 - HTTP: lỗi JSON `{"error":{"code":"..."}}`; xác thực trước khi đọc/parse body; `X-API-Key` so XOR constant-time; `MAX_BODY_SIZE=512`, kiểm tra NUL nhúng, `NestingLimit(3)`; chỉ báo `sent` sau transmit/wait, luôn `state_verified:false` với IR. Đọc thiết bị thực (Milife) mới được `state_verified:true`.
 - Không retry: lệnh IR và đọc miIO đúng một lần mỗi request; lỗi đọc body HTTPS đóng socket. Tài nguyên dùng chung giữa task dùng atomic/khóa fail-fast (`TxGate`), không xếp hàng.
 - Fail closed: HTTPS đăng ký thiếu route thì dừng; OTA khóa khi thiếu mật khẩu hoặc safety chưa xác nhận; tính năng phụ thuộc file cục bộ bật bằng `__has_include`.
-- Trang web nhúng PROGMEM raw string, không CDN; Web UI không lưu API key ở JS/browser storage, session cookie `HttpOnly`/`Secure`/`SameSite=Strict` + CSRF.
+- Trang điều khiển nhúng PROGMEM raw string, không CDN; vault dùng bundle sinh và CSP cloud riêng (§5.12); Web UI không lưu API key vào browser storage; vault chỉ xử lý key trong bộ nhớ tab, session cookie `HttpOnly`/`Secure`/`SameSite=Strict` + CSRF.
 - Firmware version là chuỗi cố định ở `main.cpp` và health cổng 80; `build_id` từ ELF SHA-256 là định danh build thực.
 - Quy định agent (`AGENTS.md`): không đọc/in `include/secrets.h`, `include/ota_password.h`, `.env` (và không đưa nội dung file credential cục bộ khác vào ngữ cảnh); không quét `.pio/`, `build/`, `logs/`, `.git/`, `.vscode/`, `backups/`, `*.patch` (trừ `.pio/build.log`); đọc toàn bộ file `.cpp`/`.h` trước khi sửa, riêng `src/OtaPage.cpp` (và tương tự trang nhúng) chỉ đọc phần C++ trừ khi sửa giao diện. Không dùng thư viện IR/OTA bên thứ ba. Context7 chỉ dùng khi cần tra API, không gửi secret. Agent làm đơn luồng, không subagent, không báo cáo giữa chừng.
 - Quy định OTA: auth → prefix → write → verify → chọn boot → reboot; không mật khẩu mặc định; giới hạn 4 MiB, không multipart/chunked, không retry upload (chỉ retry GET health); mật khẩu không vào URL/localStorage/cookie; đổi OTA phải cập nhật `docs/OTA.md` và test host.
@@ -344,9 +372,10 @@ Nguồn: `include/*.h`, `src/*.cpp`, `AGENTS.md`, `CLAUDE.md`.
 
 - **Thêm lệnh/giao thức IR:** encoder thuần đặt header-only kiểu `ToshibaCodec`; hàm send trong `IrDiagnostics` phải giữ `TxGate` trước khi đụng buffer static, kiểm tra `isReady()`, gọi `transmitSymbols()`. Cập nhật `supported_actions` ở `src/DeviceRegistry.cpp`, dispatch ở `src/CommandApi.cpp` (HTTP/80) và/hoặc `src/HttpsService.cpp`/`src/WebUi.cpp` (HTTPS), capability nếu cần. Phím Serial ở `src/main.cpp` chỉ khi cần thử tay.
 - **Thêm thiết bị LAN (kiểu miIO):** module riêng theo mẫu `MiotLocal`: cấu hình qua header cục bộ + `__has_include`, template `include/*.example.h`, thêm vào `.gitignore`; một request/không retry; mã lỗi phân biệt timeout (504) và lỗi giao thức (502); đăng ký route cả HTTP và HTTPS nếu cần.
-- **Thêm route HTTPS:** tăng `max_uri_handlers` (hiện 15, đang dùng 6 API + 9 Web UI = 15) trước khi thêm route; giữ fail-closed khi đăng ký; handler chạy trên task httpd nên mọi tài nguyên dùng chung với Arduino loop cần đồng bộ.
+- **Thêm route HTTPS:** tăng `max_uri_handlers` (hiện 17, đang dùng 6 API + 11 Web UI = 17) trước khi thêm route; giữ fail-closed khi đăng ký; handler chạy trên task httpd nên mọi tài nguyên dùng chung với Arduino loop cần đồng bộ.
 - **Thêm route HTTP/80:** duy trì auth, body limit, NUL, mã lỗi, nhánh 405 trong `onNotFound`; đồng bộ registry/capabilities; giữ nghĩa `sent`/`state_verified`. Cập nhật `tools/monitor-hub.ps1` nếu health/system đổi.
 - **Đổi OTA/khởi động:** giữ `OtaSafety` health gate (thêm điều kiện mới vào `HealthGate::ready`), cập nhật `docs/OTA.md`, `test/ota_host` (stub `OtaSafety.h`) và chạy test host/trang.
+- **Đổi Web Vault:** sửa JS, sinh bundle bằng `tools/build-vault-web.py`, commit source/bundle/lockfile cùng nhau; test Node/KAT app và cập nhật `docs/WEB_VAULT.md`. Giữ đọc cloud một lần, không ghi Firestore, không lưu key/password, không tự retry login; thử tab thường và login thủ công.
 - **Thêm DP Tuya:** chưa có SDK/transport; cần thiết kế tích hợp trước, không suy ra DP từ nhãn `tuya_plug`.
 - **Thêm chân/ngoại vi:** đối chiếu §1 và `AGENTS.md`, không đổi GPIO4; cập nhật pin map §1.
 - **Thêm NVS key:** dùng namespace riêng (đã có `ota_safe`), định nghĩa magic/version/checksum như `Journal`, ghi vào §7; không lưu secret.
@@ -366,7 +395,7 @@ Nguồn: `AGENTS.md`, `CLAUDE.md`, `.agents/skills/**`, `src/HttpsService.cpp`, 
 - [ ] ESP-IDF 5.5.5 chỉ được ghi trong `docs/HTTPS_STAGE1.md`, không ghim trong `platformio.ini`. Chưa có CI. — Nguồn: `platformio.ini`, `docs/HTTPS_STAGE1.md`.
 - [ ] Cần xác nhận trên board: Arduino 3.3.12 prebuilt có `CONFIG_APP_ROLLBACK_ENABLE` và gọi hook `verifyRollbackLater()`. Nếu không, `canAcceptUpdate()` luôn false → OTA luôn `503 ota_safety_not_ready`; phải nạp USB. — Nguồn: `src/OtaSafety.cpp`.
 - [ ] Health gate của ảnh OTA mới yêu cầu `HttpsService::ready()`. Firmware build không có `tls_credentials.h` (HTTPS tắt) hoặc TLS start lỗi sẽ không bao giờ được đánh dấu VALID và bị rollback sau 90 s nếu ảnh đó được nạp qua OTA. — Nguồn: `src/OtaSafety.cpp`, `src/HttpsService.cpp`.
-- [ ] `docs/OTA.md` §giới hạn vẫn ghi "chưa có cơ chế tự rollback theo health/Wi-Fi" và chưa nêu lỗi `ota_safety_not_ready`; code đã có `OtaSafety`. `docs/HTTPS_STAGE1.md` mô tả HTTPS chỉ có health, trong khi code đã có API Toshiba/Milife và Web UI (comment "Stage 2C/3A"). Spec theo code. — Nguồn: `docs/OTA.md`, `docs/HTTPS_STAGE1.md`, `src/HttpsService.cpp`.
+- [ ] `docs/HTTPS_STAGE1.md` vẫn mô tả HTTPS chỉ có health trong khi code có API Toshiba/Milife và Web UI/vault. Spec theo code. — Nguồn: `docs/HTTPS_STAGE1.md`, `docs/OTA.md`, `src/HttpsService.cpp`, `src/WebUi.cpp`.
 - [ ] `MiotLocal::readPower()` có thể được gọi đồng thời từ Arduino loop (HTTP/80) và task HTTPS mà không có khóa; chưa xác minh an toàn khi hai request chồng nhau. Mỗi lần đọc chặn luồng gọi tới ~4,4 s. — Nguồn: `src/MiotLocal.cpp`, `src/HttpsService.cpp`.
 - [ ] Catalog Toshiba chỉ liệt kê `fix`, nhưng HTTPS/Web UI nhận `state`, `swing_on`, `swing_off`; HTTP/80 chỉ nhận `fix`. — Nguồn: `src/DeviceRegistry.cpp`, `src/CommandApi.cpp`, `src/HttpsService.cpp`.
 - [ ] Health HTTPS không có `firmware`, `boot_id`, `ota_slot` như cổng 80. Phiên bản `0.4.0-ota1` cố định dù firmware đã thêm HTTPS/OtaSafety. — Nguồn: `src/HttpsService.cpp`, `src/ApiServer.cpp`, `src/main.cpp`.
@@ -375,9 +404,11 @@ Nguồn: `AGENTS.md`, `CLAUDE.md`, `.agents/skills/**`, `src/HttpsService.cpp`, 
 - [ ] Daikin/Tuya chưa có driver; validation HTTP/80 vẫn nhận `power_on`/`power_off` rồi trả `503`. — Nguồn: `src/CommandApi.cpp`.
 - [ ] `otaServer` (8081) không có `onNotFound`; nhánh 405 cho route OTA không còn — phản hồi sai method/route lạ dùng mặc định `WebServer`. — Nguồn: `src/ApiServer.cpp`, `src/OtaService.cpp`.
 - [ ] `backups/` (2 file `.bin`, 1 bản sao `HttpsService.cpp` cũ) đã được track dù `.gitignore` có `backups`. — Nguồn: `git ls-files`, `.gitignore`.
-- [ ] Chưa có test host cho HTTPS/Web UI/MiotLocal/`ToshibaCodec`/`OtaSafetyPolicy`; rollback OTA, TLS và miIO cần thử trên board. — Nguồn: `test/ota_host/**`, `tools/test-ota.py`.
+- [ ] Chưa có test host cho handler C++ HTTPS/Web UI/MiotLocal/`ToshibaCodec`/`OtaSafetyPolicy`; rollback OTA, TLS và miIO cần thử trên board. — Nguồn: `test/ota_host/**`, `tools/test-ota.py`.
 
-Không tìm thấy marker `TODO`, `FIXME`, `HACK`, `XXX` trong `src/`, `include/`, `test/`, `tools/`.
+- [ ] Chưa có KAT app được track; fixture Node chưa chứng minh tương thích Kotlin/Android. Cần KAT dữ liệu giả, thử password tiếng Việt trên Android/Safari, Google popup, storage/network, route/heap (`max_open_sockets=2`) và điều khiển sau login. — Nguồn: `web/vault/test/vault.test.mjs`, `docs/WEB_VAULT.md`, `src/HttpsService.cpp`.
+
+Lần FULL trước không tìm thấy marker `TODO`, `FIXME`, `HACK`, `XXX` trong `src/`, `include/`, `test/`, `tools/`.
 
 Nguồn: `src/*.cpp`, `include/*.h`, `docs/OTA.md`, `docs/HTTPS_STAGE1.md`, `.gitignore`.
 
@@ -391,11 +422,13 @@ Nguồn: `src/*.cpp`, `include/*.h`, `docs/OTA.md`, `docs/HTTPS_STAGE1.md`, `.gi
 - 2026-11-06 INCR 703392f..21fe217 — đọc spec theo mục bằng `tools/spec.py`, quy trình năm vai.
 - 2026-11-13 FULL 21fe217..d66cbf6 — quét lại 76 file vì chạm 7/7 module cũ và thêm 6 module; thêm §5.8–§5.11 (OtaSafety, HttpsService, WebUi, MiotLocal), §6.5 HTTPS, OTA chuyển cổng 8081, IR `TxGate` + Toshiba state/swing, NVS `ota_safe`, credential miIO/TLS, quy định agent mới. Không build/flash; không đọc file credential cục bộ.
 
+- 2026-11-17 INCR d66cbf6..9a48012 — vault Firebase/crypto/bundle và test/cấu hình; OTA boot/build/slot/VALID, build ID descriptor; Wi-Fi reconnect; Referrer-Policy login, fingerprint cert. Chỉ kiểm tra tài liệu, không build/flash hay test firmware.
+
 Nguồn: cây Git và lịch sử commit tại mốc đồng bộ trong front matter.
 
 ## 12. Bản đồ file → mục
 
-Mỗi file trong 76 file tracked tại mốc đồng bộ thuộc một dòng dưới đây.
+Mỗi file trong 90 file tracked tại mốc đồng bộ thuộc một dòng dưới đây.
 
 | Glob | Mục | Ghi chú |
 |---|---|---|
@@ -409,8 +442,11 @@ Mỗi file trong 76 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `include/OtaPage.h`, `src/OtaPage.cpp` | §5.7, §6.4 | Trang OTA nhúng |
 | `include/OtaSafety.h`, `include/OtaSafetyPolicy.h`, `src/OtaSafety.cpp` | §0, §4, §5.8, §7–§10 | Rollback, nhật ký NVS |
 | `include/HttpsService.h`, `src/HttpsService.cpp` | §4, §5.9, §6.5, §7, §9, §10 | Server TLS 443 |
-| `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPage.cpp` | §5.10, §6.5, §8 | Web UI Toshiba trên HTTPS |
+| `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPage.cpp` | §5.10, §5.12, §6.5, §7, §8 | Web UI Toshiba và vault trên HTTPS |
 | `include/MiotLocal.h`, `src/MiotLocal.cpp` | §4, §5.11, §6.2, §6.3, §7, §10 | Đọc Milife miIO LAN |
+| `include/VaultWebBundle.h`, `src/VaultWebBundle.cpp` | §2, §3, §5.12 | Bundle gzip sinh, PROGMEM |
+| `web/vault/**` | §2, §3, §5.12, §7–§10 | Source JS, dependency/lockfile và test Node |
+| `docs/WEB_VAULT.md` | §2, §5.12, §6.5, §7–§10 | Cấu hình Firebase, định dạng vault, KAT và thử board |
 | `include/*.example.h` | §7 | Template credential |
 | `platformio.ini` | §1, §2, §7 | Build, board, extra script |
 | `.gitignore` | §3, §7, §10 | File cục bộ/secret bị bỏ qua |
@@ -424,6 +460,6 @@ Mỗi file trong 76 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `.vscode/**` | §3 | Chỉ kiểm kê tên |
 | `docs/PROJECT_SPEC.md` | §0–§12 | Spec tự quản lý |
 
-Các file cục bộ `include/secrets.h`, `include/ota_password.h`, `include/miot_config.h`, `include/tls_credentials.h`, `include/tls_*.pem`, `.pio/build.log`, `logs/`, `docs/PLAN.md` và `default_16MB.csv` không phải nguồn được track.
+Các file cục bộ `include/secrets.h`, `include/ota_password.h`, `include/miot_config.h`, `include/firebase_web_config.h`, `include/tls_credentials.h`, `include/tls_*.pem`, `.pio/build.log`, `logs/`, `docs/PLAN.md` và `default_16MB.csv` không phải nguồn được track.
 
 Nguồn: `git ls-files` tại mốc đồng bộ; `.gitignore`.
