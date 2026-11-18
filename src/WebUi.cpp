@@ -6,10 +6,18 @@
 #include <ArduinoJson.h>
 #include <esp_random.h>
 #include <cstring>
+#include <mbedtls/sha256.h>
 
 #include "IrDiagnostics.h"
 #include "OtaService.h"
 #include "secrets.h"
+
+#if __has_include("web_password.h")
+#include "web_password.h"
+#endif
+#ifndef HUB_WEB_PASSWORD
+#define HUB_WEB_PASSWORD ""
+#endif
 
 #if __has_include("firebase_web_config.h")
 #include "firebase_web_config.h"
@@ -28,7 +36,25 @@ constexpr size_t MAX_BODY_SIZE = 512;
 constexpr unsigned long SESSION_MS = 15UL * 60UL * 1000UL;
 constexpr size_t SESSION_SLOTS = 2;
 constexpr size_t TOKEN_HEX_LEN = 32;
+constexpr size_t MAX_WEB_PASSWORD_BYTES = 64;
+constexpr char kPasswordField[] = "password=";
+constexpr char kWebPassword[] = HUB_WEB_PASSWORD;
+constexpr size_t kWebPasswordLen = sizeof(kWebPassword) - 1;
+constexpr bool kPasswordConfigured = kWebPasswordLen != 0;
 static_assert(sizeof(HUB_API_KEY) == 65, "HUB_API_KEY must have 64 chars");
+static_assert(kWebPasswordLen <= MAX_WEB_PASSWORD_BYTES, "HUB_WEB_PASSWORD must be at most 64 bytes");
+
+constexpr bool isWebPasswordByteAllowed(int byte) {
+    return byte >= 32 && byte != 127;
+}
+
+constexpr bool isWebPasswordConfigValid() {
+    for (size_t i = 0; i < kWebPasswordLen; ++i) {
+        if (!isWebPasswordByteAllowed(static_cast<unsigned char>(kWebPassword[i]))) return false;
+    }
+    return true;
+}
+static_assert(isWebPasswordConfigValid(), "HUB_WEB_PASSWORD must not contain ASCII control bytes");
 
 struct Session {
     char id[TOKEN_HEX_LEN + 1] = {};
@@ -180,6 +206,39 @@ bool parseFormKey(const char* form, char out[65]) {
     return length == 64;
 }
 
+// The caller has already matched the password field prefix.
+bool parseFormPassword(const char* form, char out[MAX_WEB_PASSWORD_BYTES + 1], size_t& length) {
+    const char* read = form + sizeof(kPasswordField) - 1;
+    length = 0;
+    for (; *read; ++read) {
+        if (length >= MAX_WEB_PASSWORD_BYTES || *read == '&') return false;
+        int ch = static_cast<unsigned char>(*read);
+        if (*read == '+') ch = ' ';
+        else if (*read == '%') {
+            if (read[1] == '\0' || read[2] == '\0') return false;
+            const int a = nibble(read[1]), b = nibble(read[2]);
+            if (a < 0 || b < 0) return false;
+            ch = (a << 4) | b;
+            read += 2;
+        }
+        if (!isWebPasswordByteAllowed(ch)) return false;
+        out[length++] = static_cast<char>(ch);
+    }
+    return length != 0;
+}
+
+bool passwordMatches(const char* provided, size_t length) {
+    unsigned char actual[32] = {};
+    unsigned char expected[32] = {};
+    const bool match =
+        mbedtls_sha256(reinterpret_cast<const unsigned char*>(provided), length, actual, 0) == 0 &&
+        mbedtls_sha256(reinterpret_cast<const unsigned char*>(kWebPassword), kWebPasswordLen, expected, 0) == 0 &&
+        equalConstantTime(reinterpret_cast<const char*>(actual), reinterpret_cast<const char*>(expected), sizeof(actual));
+    memset(actual, 0, sizeof(actual));
+    memset(expected, 0, sizeof(expected));
+    return match;
+}
+
 esp_err_t view(httpd_req_t* r) {
     httpd_resp_set_hdr(r, "Content-Security-Policy",
         "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
@@ -286,11 +345,28 @@ esp_err_t login(httpd_req_t* r) {
         return error(r, "415 Unsupported Media Type", "unsupported_media_type");
     }
     char body[MAX_BODY_SIZE + 1] = {};
-    char provided[65] = {};
-    const bool valid = readBody(r, body) && parseFormKey(body, provided);
-    const bool match = valid && equalConstantTime(provided, HUB_API_KEY, 64);
+    char provided[MAX_WEB_PASSWORD_BYTES + 1] = {};
+    const bool bodyValid = readBody(r, body);
+    const bool passwordLogin =
+        bodyValid && strncmp(body, kPasswordField, sizeof(kPasswordField) - 1) == 0;
+    const bool passwordDisabled = passwordLogin && !kPasswordConfigured;
+    bool match = false;
+    if (passwordLogin) {
+        size_t length = 0;
+        match = !passwordDisabled && parseFormPassword(body, provided, length) &&
+                passwordMatches(provided, length);
+    } else {
+        match = bodyValid && parseFormKey(body, provided) &&
+                equalConstantTime(provided, HUB_API_KEY, 64);
+    }
     memset(body, 0, sizeof(body));
     memset(provided, 0, sizeof(provided));
+    if (passwordDisabled) {
+        return respond(r, "503 Service Unavailable", "text/html; charset=utf-8",
+            "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<title>Đăng nhập Web UI</title><p>Chưa cấu hình mật khẩu Web UI</p>"
+            "<p><a href='/ui'>Quay lại đăng nhập</a></p>");
+    }
     if (!match) {
         if (++failedLogins >= 5) {
             failedLogins = 0;
@@ -298,7 +374,7 @@ esp_err_t login(httpd_req_t* r) {
         }
         return respond(r, "401 Unauthorized", "text/html; charset=utf-8",
             "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>Đăng nhập thất bại</title><p>Mã API không đúng.</p>"
+            "<title>Đăng nhập thất bại</title><p>Mật khẩu không đúng.</p>"
             "<p><a href='/ui'>Quay lại đăng nhập</a></p>");
     }
     failedLogins = 0;

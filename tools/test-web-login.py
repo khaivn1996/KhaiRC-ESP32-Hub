@@ -22,11 +22,13 @@ from playwright.sync_api import expect, sync_playwright
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 KEY = "a" * 64
+PASSWORD = "04061995"
+SHORT_PASSWORD = "0124567"
 SID = "b" * 32
 CSRF = "c" * 32
 
 
-def run_case(browser, profile, tls, policy, should_login):
+def run_case(browser, profile, tls, policy, should_login, password=PASSWORD):
     source = (ROOT / "src/WebUiPage.cpp").read_text(encoding="utf-8")
     html, script = re.findall(r'R"KHAIRCSTAGE3A\((.*?)\)KHAIRCSTAGE3A"', source, re.S)[:2]
     backend = (ROOT / "src/WebUi.cpp").read_text(encoding="utf-8")
@@ -51,12 +53,13 @@ def run_case(browser, profile, tls, policy, should_login):
             body, content_type = script, "text/javascript"
         elif path == "/web/login":
             assert request.command == "POST"
-            posts.append(incoming.get("origin"))
+            form = parse_qs(post_data, keep_blank_values=True)
+            posts.append((incoming.get("origin"), form))
             # Mirror the existing server contract, without changing browser headers.
             if incoming.get("origin") not in (None, origin):
                 status, body = 403, '{"error":{"code":"origin_blocked"}}'
-            elif parse_qs(post_data).get("api_key") != [KEY]:
-                status, body = 401, "Wrong synthetic key"
+            elif form not in ({"password": [password]}, {"api_key": [KEY]}):
+                status, body = 401, "Wrong synthetic credential"
             else:
                 status = 303
                 response_headers.update({
@@ -104,21 +107,25 @@ def run_case(browser, profile, tls, policy, should_login):
     try:
         page.goto(origin + "/ui")
         expect(page.locator("#login-card")).to_be_visible()
+        expect(page.locator("#password")).to_have_attribute("autocomplete", "current-password")
+        wrong_password = "z" * 8
         if should_login:
-            page.locator("#key").fill("z" * 64)
+            page.locator("#password").fill(wrong_password)
             with page.expect_response(lambda response: response.url == origin + "/web/login") as failed:
                 page.locator('button[type="submit"]').click()
             assert failed.value.status == 401
             page.wait_for_url(origin + "/web/login", wait_until="load")
             page.goto(origin + "/ui")
             expect(page.locator("#login-card")).to_be_visible()
-        page.locator("#key").fill(KEY)
+        page.locator("#password").fill(password)
         with page.expect_response(lambda response: response.url == origin + "/web/login") as result:
             page.locator('button[type="submit"]').click()
         if not should_login:
-            assert result.value.status == 403 and posts == ["null"], posts
+            assert result.value.status == 403 and posts == [("null", {"password": [password]})], posts
         else:
-            assert result.value.status == 303 and posts == [origin, origin], posts
+            assert result.value.status == 303
+            assert posts == [(origin, {"password": [wrong_password]}),
+                             (origin, {"password": [password]})], posts
             page.wait_for_url(origin + "/ui", wait_until="load")
             expect(page.locator("#remote")).to_be_visible()
             expect(page.locator("#connection")).to_have_text("LAN · TLS")
@@ -169,7 +176,9 @@ def main():
             run_case(browser, profile, tls, "no-referrer", False)
             print("PASS: original no-referrer reproduces Origin:null / 403")
             run_case(browser, profile, tls, policy, True)
-            print("PASS: same-origin: wrong key, login/303, cookie, reload, logout; no IR")
+            print("PASS: same-origin: wrong password, login/303, cookie, reload, logout; no IR")
+            run_case(browser, profile, tls, policy, True, SHORT_PASSWORD)
+            print("PASS: same-origin: a 7-byte password submits and logs in")
         finally:
             browser.close()
 

@@ -42,14 +42,14 @@ const char kHtml[] PROGMEM = R"KHAIRCSTAGE3A(<!doctype html>
   </header>
   <section id="login-card" class="card hidden" aria-labelledby="login-title">
     <h2 id="login-title" style="margin:0">Đăng nhập Hub</h2>
-    <p class="intro">Chỉ hoạt động trong mạng LAN. Nhập API key đã cấu hình trên ESP32 để mở phiên điều khiển HTTPS trong 15 phút.</p>
-    <form method="post" action="/web/login" autocomplete="off">
-      <label for="key">HUB_API_KEY (64 ký tự)</label>
-      <input id="key" name="api_key" type="password" minlength="64" maxlength="64" required autocomplete="off" autocapitalize="none" spellcheck="false">
+    <p class="intro">Chỉ hoạt động trong mạng LAN. Nhập mật khẩu Web UI để mở phiên điều khiển HTTPS trong 15 phút.</p>
+    <form method="post" action="/web/login">
+      <label for="password">Mật khẩu</label>
+      <input id="password" name="password" type="password" required autocomplete="current-password" autocapitalize="none" spellcheck="false">
       <button class="full primary" type="submit">ĐĂNG NHẬP BẢO MẬT</button>
     </form>
     <p class="small"><a href='/ui/vault'>Mở khóa bằng bản sao cloud của app</a></p>
-    <p class="small">Mã không được nhúng vào trang hoặc lưu trên iPhone. Cookie phiên có HttpOnly, Secure và SameSite=Strict.</p>
+    <p class="small">Safari có thể lưu mật khẩu trong Keychain nếu bạn đồng ý.</p>
   </section>
   <section id="remote" class="hidden" aria-label="Điều khiển Toshiba">
     <div class="card">
