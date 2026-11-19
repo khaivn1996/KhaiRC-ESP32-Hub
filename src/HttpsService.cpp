@@ -9,15 +9,16 @@
 #define KHAIRC_HTTPS_ENABLED 1
 #include <esp_https_server.h>
 #include <esp_http_server.h>
-#include <WiFi.h>
 #include <cstring>
 #include <ArduinoJson.h>
+#include "ApiAuth.h"
+#include "ApiServer.h"
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
 #include "MiotLocal.h"
 #include "OtaService.h"
+#include "ToshibaCodec.h"
 #include "WebUi.h"
-#include "secrets.h"
 #include "tls_credentials.h"
 #else
 #define KHAIRC_HTTPS_ENABLED 0
@@ -29,7 +30,6 @@ namespace {
     constexpr unsigned long RETRY_MS = 30000;
     bool attempted = false;
     unsigned long lastAttempt = 0;
-    static_assert(sizeof(HUB_API_KEY) == 65, "HUB_API_KEY must have exactly 64 characters");
 
     esp_err_t sendJson(httpd_req_t* request, const char* status, const String& body) {
         httpd_resp_set_status(request, status);
@@ -47,16 +47,12 @@ namespace {
 
     // Exactly 64 bytes must match; no early return for a correctly sized key.
     bool authorized(httpd_req_t* request) {
-        constexpr size_t KEY_SIZE = sizeof(HUB_API_KEY) - 1;
+        constexpr size_t KEY_SIZE = 64;
         if (httpd_req_get_hdr_value_len(request, "X-API-Key") != KEY_SIZE) return false;
         char provided[KEY_SIZE + 1] = {};
         if (httpd_req_get_hdr_value_str(request, "X-API-Key", provided,
                                         sizeof(provided)) != ESP_OK) return false;
-        uint8_t diff = 0;
-        for (size_t i = 0; i < KEY_SIZE; ++i) {
-            diff |= static_cast<uint8_t>(provided[i] ^ HUB_API_KEY[i]);
-        }
-        return diff == 0;
+        return ApiAuth::hubKeyMatches(provided, KEY_SIZE);
     }
 
     esp_err_t getHealth(httpd_req_t* request) {
@@ -76,18 +72,7 @@ namespace {
     }
 
     esp_err_t getSystem(httpd_req_t* request) {
-        String json = "{\"chip\":\"";
-        json += ESP.getChipModel();
-        json += "\",\"flash_mb\":";
-        json += String(ESP.getFlashChipSize() / 1048576);
-        json += ",\"psram_mb\":";
-        json += String(ESP.getPsramSize() / 1048576);
-        json += ",\"ip\":\"";
-        json += WiFi.localIP().toString();
-        json += "\",\"rssi_dbm\":";
-        json += String(WiFi.RSSI());
-        json += "}";
-        return sendJson(request, "200 OK", json);
+        return sendJson(request, "200 OK", ApiServer::systemJson());
     }
 
     esp_err_t getDevices(httpd_req_t* request) {
@@ -95,12 +80,7 @@ namespace {
     }
 
     esp_err_t getCapabilities(httpd_req_t* request) {
-        String json = "{\"schema_version\":1,\"capabilities\":{\"ir_send\":";
-        json += IrDiagnostics::isReady() ? "true" : "false";
-        json += ",\"tuya_control\":false,\"cloud_access\":false,\"ota_update\":";
-        json += OtaService::available() ? "true" : "false";
-        json += "}}";
-        return sendJson(request, "200 OK", json);
+        return sendJson(request, "200 OK", ApiServer::capabilitiesJson());
     }
 
     esp_err_t getMilifeState(httpd_req_t* request) {
@@ -111,25 +91,12 @@ namespace {
         // Exactly ONE read-only miIO request. No toggle, power write or auto-retry.
         const MiotLocal::PowerResult result = MiotLocal::readPower();
         if (result.status != MiotLocal::Status::Ok) {
-            const bool timeout = result.status == MiotLocal::Status::HelloTimeout ||
-                                 result.status == MiotLocal::Status::ReadTimeout;
-            const char* code = "miot_protocol_error";
-            switch (result.status) {
-                case MiotLocal::Status::WifiUnavailable: code = "wifi_unavailable"; break;
-                case MiotLocal::Status::NetworkError: code = "miot_network_error"; break;
-                case MiotLocal::Status::HelloTimeout: code = "miot_hello_timeout"; break;
-                case MiotLocal::Status::DeviceMismatch: code = "miot_device_mismatch"; break;
-                case MiotLocal::Status::ReadTimeout: code = "miot_read_timeout"; break;
-                case MiotLocal::Status::AuthFailed: code = "miot_auth_failed"; break;
-                case MiotLocal::Status::DeviceRejected: code = "miot_device_rejected"; break;
-                default: break;
-            }
-            return sendError(request, timeout ? "504 Gateway Timeout" : "502 Bad Gateway", code);
+            return sendError(request,
+                             MiotLocal::isTimeout(result.status) ? "504 Gateway Timeout"
+                                                                 : "502 Bad Gateway",
+                             MiotLocal::errorCode(result.status));
         }
-        const String json = String("{\"schema_version\":1,\"device_id\":\"milife_plug_10a\","
-                                   "\"transport\":\"miio_lan\",\"power\":") +
-                            (result.on ? "true" : "false") + ",\"state_verified\":true}";
-        return sendJson(request, "200 OK", json);
+        return sendJson(request, "200 OK", MiotLocal::stateJson(result.on));
     }
 
 
@@ -210,13 +177,9 @@ namespace {
             if (doc["fan_speed"].as<JsonString>().size() != strlen(fan)) {
                 return sendError(request, "422 Unprocessable Entity", "unsupported_action");
             }
-            if (strcmp(fan,"auto") == 0) fanByte = 0x80;
-            else if (strcmp(fan,"1") == 0) fanByte = 0x82;
-            else if (strcmp(fan,"2") == 0) fanByte = 0x86;
-            else if (strcmp(fan,"3") == 0) fanByte = 0x81;
-            else if (strcmp(fan,"4") == 0) fanByte = 0x85;
-            else if (strcmp(fan,"5") == 0) fanByte = 0x83;
-            else return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+            if (!ToshibaCodec::fanFromName(fan, fanByte)) {
+                return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+            }
             temperatureC = doc["temperature_c"].as<int>();
             if (temperatureC < 17 || temperatureC > 30) {
                 return sendError(request, "422 Unprocessable Entity", "unsupported_action");
@@ -268,6 +231,7 @@ namespace {
         httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
         config.port_secure = 443;
         config.httpd.stack_size = 8192;
+        // Exactly 6 API routes below + 11 WebUi::registerRoutes() routes.
         config.httpd.max_uri_handlers = 17;
         config.httpd.max_req_hdr_len = 1536;
         config.httpd.max_open_sockets = 2;

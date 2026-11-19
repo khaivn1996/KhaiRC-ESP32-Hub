@@ -326,17 +326,12 @@ bool rebootPending() {
 
 void registerRoutes(WebServer& server) {
     WebServer* serverPtr = &server;
-    // server.on("/", HTTP_GET, [serverPtr]() {
-    //     serverPtr->sendHeader("Location", "/update");
-    //     serverPtr->sendHeader("Cache-Control", "no-store");
-    //     serverPtr->send(302, "text/plain", "");
-    // });
     server.on("/", HTTP_GET, [serverPtr]() {
-    serverPtr->send(
-        200,
-        "application/json",
-        R"({"service":"KhaiRC-ESP32-Hub","status":"ok"})"
-    );
+        serverPtr->send(
+            200,
+            "application/json",
+            R"({"service":"KhaiRC-ESP32-Hub","status":"ok"})"
+        );
     });
     server.on("/update", HTTP_GET, [serverPtr]() {
         serverPtr->sendHeader("Cache-Control", "no-store");

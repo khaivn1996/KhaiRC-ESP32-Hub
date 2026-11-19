@@ -10,8 +10,8 @@
 #include <cstring>
 #include <cstdio>
 
+#include "ApiAuth.h"
 #include "WifiService.h"
-#include "secrets.h"  // HUB_API_KEY only; never print it.
 
 #if __has_include("miot_config.h")
 #include "miot_config.h"  // Optional untracked local device credentials.
@@ -244,14 +244,7 @@ MiotLocal::PowerResult parseResponse(uint8_t* packet, size_t n, uint32_t did,
 
 bool authorized(WebServer& server) {
     const String provided = server.header("X-API-Key");
-    constexpr size_t requiredLength = sizeof(HUB_API_KEY) - 1;
-    static_assert(sizeof(HUB_API_KEY) == 65, "Expected a 64-character HUB_API_KEY");
-    if (provided.length() != requiredLength) return false;
-    uint8_t diff = 0;
-    for (size_t i = 0; i < requiredLength; ++i) {
-        diff |= static_cast<uint8_t>(provided[i] ^ HUB_API_KEY[i]);
-    }
-    return diff == 0;
+    return ApiAuth::hubKeyMatches(provided.c_str(), provided.length());
 }
 
 void sendError(WebServer& server, int code, const char* reason) {
@@ -264,6 +257,29 @@ void sendError(WebServer& server, int code, const char* reason) {
 }  // namespace
 
 namespace MiotLocal {
+
+const char* errorCode(Status status) {
+    switch (status) {
+        case Status::WifiUnavailable: return "wifi_unavailable";
+        case Status::NetworkError: return "miot_network_error";
+        case Status::HelloTimeout: return "miot_hello_timeout";
+        case Status::DeviceMismatch: return "miot_device_mismatch";
+        case Status::ReadTimeout: return "miot_read_timeout";
+        case Status::AuthFailed: return "miot_auth_failed";
+        case Status::DeviceRejected: return "miot_device_rejected";
+        default: return "miot_protocol_error";
+    }
+}
+
+bool isTimeout(Status status) {
+    return status == Status::HelloTimeout || status == Status::ReadTimeout;
+}
+
+String stateJson(bool on) {
+    return String("{\"schema_version\":1,\"device_id\":\"milife_plug_10a\","
+                  "\"transport\":\"miio_lan\",\"power\":") +
+           (on ? "true" : "false") + ",\"state_verified\":true}";
+}
 
 bool configured() {
     IPAddress ip;
@@ -337,27 +353,11 @@ void registerRoutes(WebServer& server) {
         }
         const PowerResult value = readPower();
         if (value.status != Status::Ok) {
-            const int http = (value.status == Status::HelloTimeout ||
-                              value.status == Status::ReadTimeout) ? 504 : 502;
-            const char* code = "miot_protocol_error";
-            switch (value.status) {
-                case Status::WifiUnavailable: code = "wifi_unavailable"; break;
-                case Status::NetworkError: code = "miot_network_error"; break;
-                case Status::HelloTimeout: code = "miot_hello_timeout"; break;
-                case Status::DeviceMismatch: code = "miot_device_mismatch"; break;
-                case Status::ReadTimeout: code = "miot_read_timeout"; break;
-                case Status::AuthFailed: code = "miot_auth_failed"; break;
-                case Status::DeviceRejected: code = "miot_device_rejected"; break;
-                default: break;
-            }
-            sendError(*handle, http, code);
+            sendError(*handle, isTimeout(value.status) ? 504 : 502,
+                      errorCode(value.status));
             return;
         }
-        const String json = String("{\"schema_version\":1,\"device_id\":\"milife_plug_10a\","
-                                   "\"transport\":\"miio_lan\",\"power\":") +
-                                   (value.on ? "true" : "false") +
-                                   ",\"state_verified\":true}";
-        handle->send(200, "application/json", json);
+        handle->send(200, "application/json", stateJson(value.on));
     });
 }
 

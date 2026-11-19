@@ -73,29 +73,59 @@ esp_err_t transmitSymbols(
     return err;
 }
 
+// Raw captured pattern in microseconds: even index MARK, odd index SPACE.
+// Caller must hold TxGate and have checked isReady() before calling.
+template <size_t N>
+esp_err_t transmitRawPattern(const uint16_t (&pattern)[N], const char* label) {
+    static_assert(N % 2 == 0, "Invalid IR pattern");
+    static rmt_symbol_word_t symbols[N / 2] = {};
+
+    for (size_t i = 0; i < N / 2; ++i) {
+        symbols[i].level0 = 1;
+        symbols[i].duration0 = pattern[i * 2];
+        symbols[i].level1 = 0;
+        symbols[i].duration1 = pattern[i * 2 + 1];
+    }
+
+    return transmitSymbols(symbols, sizeof(symbols), label);
+}
+
+// Frame timing exactly mirrors ToshibaAcEncoder.buildPattern() on Android:
+// header 4350/4300, LSB-first bits 550/(1600|550), gap 7350 between repeats,
+// final stop 550/550. TxGate must be held BEFORE touching this static buffer.
+template <size_t FRAME_BYTES>
+esp_err_t transmitToshibaFrames(const uint8_t (&frame)[FRAME_BYTES],
+                                uint8_t repetitions, const char* label) {
+    constexpr size_t MAX_SYMBOLS = 148; // 2 * (9*8 + header + terminal)
+    static rmt_symbol_word_t symbols[MAX_SYMBOLS] = {};
+    const size_t needed = repetitions * (FRAME_BYTES * 8 + 2);
+    if (needed > MAX_SYMBOLS || repetitions == 0) return ESP_ERR_INVALID_ARG;
+    size_t index = 0;
+    auto append = [&](uint16_t markUs, uint16_t spaceUs) {
+        symbols[index].level0 = 1;
+        symbols[index].duration0 = markUs;
+        symbols[index].level1 = 0;
+        symbols[index].duration1 = spaceUs;
+        ++index;
+    };
+    for (uint8_t repeat = 0; repeat < repetitions; ++repeat) {
+        append(4350, 4300);
+        for (const uint8_t byte : frame) {
+            for (uint8_t bit = 0; bit < 8; ++bit) {
+                append(550, (byte & (1U << bit)) ? 1600 : 550);
+            }
+        }
+        append(550, repeat + 1 < repetitions ? 7350 : 550);
+    }
+    return transmitSymbols(symbols, index * sizeof(symbols[0]), label);
+}
+
 } // namespace
 
 namespace IrDiagnostics {
 
 bool isReady() {
     return initialized && txChannel && txEncoder;
-}
-
-void testDc() {
-    Serial.println("[IR] DC TEST: PREPARING");
-
-    pinMode(IR_PIN, OUTPUT);
-    digitalWrite(IR_PIN, LOW);
-
-    delay(3000);
-
-    Serial.println("[IR] DC TEST: ON - 15 seconds");
-    digitalWrite(IR_PIN, HIGH);
-
-    delay(15000);
-
-    digitalWrite(IR_PIN, LOW);
-    Serial.println("[IR] DC TEST: OFF");
 }
 
 void begin() {
@@ -121,7 +151,6 @@ void begin() {
 
     rmt_carrier_config_t carrier = {};
     carrier.frequency_hz = 38000;
-    // carrier.frequency_hz = 38028;
     carrier.duty_cycle = 0.33f;
     carrier.flags.polarity_active_low = false;
     carrier.flags.always_on = false;
@@ -158,58 +187,6 @@ void begin() {
     Serial.println("[IR] Carrier: 38000 Hz");
 }
 
-void testBurst() {
-    if (!initialized) {
-        Serial.println("[IR] ERROR: Not initialized");
-        return;
-    }
-
-    Serial.println("[IR] Starting 3-second test...");
-
-    rmt_symbol_word_t symbol = {};
-
-    symbol.level0 = 1;
-    symbol.duration0 = 10000;
-
-    symbol.level1 = 0;
-    symbol.duration1 = 10000;
-
-    rmt_transmit_config_t transmitConfig = {};
-    transmitConfig.loop_count = 0;
-    transmitConfig.flags.eot_level = 0;
-
-    for (int i = 0; i < 30; i++) {
-
-        esp_err_t err = rmt_transmit(
-            txChannel,
-            txEncoder,
-            &symbol,
-            sizeof(symbol),
-            &transmitConfig
-        );
-
-        if (err != ESP_OK) {
-            printError("transmit", err);
-            return;
-        }
-
-        err = rmt_tx_wait_all_done(
-            txChannel,
-            1000
-        );
-
-        if (err != ESP_OK) {
-            printError("wait_all_done", err);
-            return;
-        }
-
-        delay(80);
-    }
-
-    Serial.println("[IR] TEST COMPLETE");
-}
-
-
 esp_err_t sendFanHigh() {
     TxGate txGate;
     if (!txGate.ok()) return ESP_ERR_INVALID_STATE;
@@ -237,24 +214,11 @@ esp_err_t sendFanHigh() {
         418, 1182, 418, 1182, 418, 1000
     };
 
-    constexpr size_t count =
-        sizeof(pattern) / sizeof(pattern[0]);
+    constexpr size_t count = sizeof(pattern) / sizeof(pattern[0]);
+    static_assert(count == 72, "TAIZ HIGH must have 72 raw durations");
 
-    static_assert(count % 2 == 0, "Invalid IR pattern");
-
-    static rmt_symbol_word_t symbols[count / 2];
-
-    for (size_t i = 0; i < count / 2; ++i) {
-        symbols[i].level0 = 1;
-        symbols[i].duration0 = pattern[i * 2];
-
-        symbols[i].level1 = 0;
-        symbols[i].duration1 = pattern[i * 2 + 1];
-    }
-
-    return transmitSymbols(symbols, sizeof(symbols), "Fan HIGH");
+    return transmitRawPattern(pattern, "Fan HIGH");
 }
-
 
 
 esp_err_t sendFanSwing() {
@@ -290,18 +254,8 @@ esp_err_t sendFanSwing() {
     constexpr size_t count = sizeof(pattern) / sizeof(pattern[0]);
     static_assert(count == 72, "TAIZ SWING must have 72 raw durations");
 
-    static rmt_symbol_word_t symbols[count / 2] = {};
-
-    for (size_t i = 0; i < count / 2; ++i) {
-        symbols[i].level0 = 1;
-        symbols[i].duration0 = pattern[i * 2];
-        symbols[i].level1 = 0;
-        symbols[i].duration1 = pattern[i * 2 + 1];
-    }
-
-    return transmitSymbols(symbols, sizeof(symbols), "Fan TAIZ SWING");
+    return transmitRawPattern(pattern, "Fan TAIZ SWING");
 }
-
 
 esp_err_t sendFanOff() {
     TxGate txGate;
@@ -332,18 +286,9 @@ esp_err_t sendFanOff() {
 
     constexpr size_t count = sizeof(pattern) / sizeof(pattern[0]);
     static_assert(count == 72, "TAIZ OFF must have 72 raw durations");
-    static rmt_symbol_word_t symbols[count / 2] = {};
 
-    for (size_t i = 0; i < count / 2; ++i) {
-        symbols[i].level0 = 1;
-        symbols[i].duration0 = pattern[i * 2];
-        symbols[i].level1 = 0;
-        symbols[i].duration1 = pattern[i * 2 + 1];
-    }
-
-    return transmitSymbols(symbols, sizeof(symbols), "Fan OFF");
+    return transmitRawPattern(pattern, "Fan OFF");
 }
-
 
 esp_err_t sendToshibaFix() {
     TxGate txGate;
@@ -361,74 +306,8 @@ esp_err_t sendToshibaFix() {
         0x84, 0x00, 0x84
     };
 
-    // 1 header + 56 data bits + 1 stop symbol.
-    constexpr size_t SYMBOL_COUNT =
-        1 + sizeof(frame) * 8 + 1;
-
-    // Static storage remains valid even if the RMT wait returns an error.
-    static rmt_symbol_word_t symbols[SYMBOL_COUNT] = {};
-
-    size_t index = 0;
-
-    // Mot RMT symbol gom MARK + SPACE.
-    auto appendSymbol = [&](uint16_t markUs, uint16_t spaceUs) {
-        symbols[index].level0 = 1;
-        symbols[index].duration0 = markUs;
-
-        symbols[index].level1 = 0;
-        symbols[index].duration1 = spaceUs;
-
-        ++index;
-    };
-
-    // Toshiba header.
-    appendSymbol(4350, 4300);
-
-    // 56 bits, moi byte gui LSB first.
-    for (uint8_t value : frame) {
-        for (uint8_t bit = 0; bit < 8; ++bit) {
-            bool one = (value & (1U << bit)) != 0;
-
-            appendSymbol(
-                550,
-                one ? 1600 : 550
-            );
-        }
-    }
-
-    // Stop MARK + terminal SPACE.
-    appendSymbol(550, 550);
-
-    return transmitSymbols(symbols, sizeof(symbols), "Toshiba FIX");
-}
-
-// Frame timing exactly mirrors ToshibaAcEncoder.buildPattern() on Android.
-// TxGate must be held BEFORE touching this shared static symbol buffer.
-template <size_t FRAME_BYTES>
-esp_err_t transmitToshibaFrames(const uint8_t (&frame)[FRAME_BYTES],
-                                uint8_t repetitions, const char* label) {
-    constexpr size_t MAX_SYMBOLS = 148; // 2 * (9*8 + header + terminal)
-    static rmt_symbol_word_t symbols[MAX_SYMBOLS] = {};
-    const size_t needed = repetitions * (FRAME_BYTES * 8 + 2);
-    if (needed > MAX_SYMBOLS || repetitions == 0) return ESP_ERR_INVALID_ARG;
-    size_t index = 0;
-    auto append = [&](uint16_t markUs, uint16_t spaceUs) {
-        symbols[index].level0 = 1;
-        symbols[index].duration0 = markUs;
-        symbols[index].level1 = 0;
-        symbols[index].duration1 = spaceUs;
-        ++index;
-    };
-    for (uint8_t repeat = 0; repeat < repetitions; ++repeat) {
-        append(4350, 4300);
-        for (const uint8_t byte : frame) {
-            for (uint8_t bit = 0; bit < 8; ++bit) {
-                append(550, (byte & (1U << bit)) ? 1600 : 550);
-            }
-        }
-        append(550, repeat + 1 < repetitions ? 7350 : 550);
-    }
-    return transmitSymbols(symbols, index * sizeof(symbols[0]), label);
+    // One frame: header + 56 data bits (LSB first) + stop 550/550 = 58 symbols.
+    return transmitToshibaFrames(frame, 1, "Toshiba FIX");
 }
 
 esp_err_t sendToshibaState(bool power, int temperatureC, uint8_t fanProtocolByte) {
@@ -450,7 +329,6 @@ esp_err_t sendToshibaSwing(bool enabled) {
 }
 
 // Keep the existing serial diagnostics entry points.
-void testFanHigh() { (void)sendFanHigh(); }
 void testFanSwing() { (void)sendFanSwing(); }
 void testToshibaFix() { (void)sendToshibaFix(); }
 

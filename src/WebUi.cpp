@@ -10,7 +10,8 @@
 
 #include "IrDiagnostics.h"
 #include "OtaService.h"
-#include "secrets.h"
+#include "ApiAuth.h"
+#include "ToshibaCodec.h"
 
 #if __has_include("web_password.h")
 #include "web_password.h"
@@ -41,7 +42,6 @@ constexpr char kPasswordField[] = "password=";
 constexpr char kWebPassword[] = HUB_WEB_PASSWORD;
 constexpr size_t kWebPasswordLen = sizeof(kWebPassword) - 1;
 constexpr bool kPasswordConfigured = kWebPasswordLen != 0;
-static_assert(sizeof(HUB_API_KEY) == 65, "HUB_API_KEY must have 64 chars");
 static_assert(kWebPasswordLen <= MAX_WEB_PASSWORD_BYTES, "HUB_WEB_PASSWORD must be at most 64 bytes");
 
 constexpr bool isWebPasswordByteAllowed(int byte) {
@@ -98,11 +98,7 @@ esp_err_t error(httpd_req_t* r, const char* status, const char* code) {
     return respond(r, status, "application/json; charset=utf-8", payload);
 }
 
-bool equalConstantTime(const char* a, const char* b, size_t n) {
-    uint8_t diff = 0;
-    for (size_t i = 0; i < n; ++i) diff |= static_cast<uint8_t>(a[i] ^ b[i]);
-    return diff == 0;
-}
+using ApiAuth::constantTimeEquals;
 
 void randomToken(char out[TOKEN_HEX_LEN + 1]) {
     uint8_t bytes[TOKEN_HEX_LEN / 2];
@@ -141,7 +137,7 @@ Session* currentSession(httpd_req_t* r) {
             const char* id = cur + sizeof(name) - 1;
             for (Session& s : sessions) {
                 if (s.active && expired(s.issued)) s.active = false;
-                if (s.active && equalConstantTime(s.id, id, TOKEN_HEX_LEN)) return &s;
+                if (s.active && constantTimeEquals(s.id, id, TOKEN_HEX_LEN)) return &s;
             }
         }
         cur = *end ? end + 1 : end;
@@ -233,7 +229,7 @@ bool passwordMatches(const char* provided, size_t length) {
     const bool match =
         mbedtls_sha256(reinterpret_cast<const unsigned char*>(provided), length, actual, 0) == 0 &&
         mbedtls_sha256(reinterpret_cast<const unsigned char*>(kWebPassword), kWebPasswordLen, expected, 0) == 0 &&
-        equalConstantTime(reinterpret_cast<const char*>(actual), reinterpret_cast<const char*>(expected), sizeof(actual));
+        constantTimeEquals(reinterpret_cast<const char*>(actual), reinterpret_cast<const char*>(expected), sizeof(actual));
     memset(actual, 0, sizeof(actual));
     memset(expected, 0, sizeof(expected));
     return match;
@@ -357,7 +353,7 @@ esp_err_t login(httpd_req_t* r) {
                 passwordMatches(provided, length);
     } else {
         match = bodyValid && parseFormKey(body, provided) &&
-                equalConstantTime(provided, HUB_API_KEY, 64);
+                ApiAuth::hubKeyMatches(provided, strlen(provided));
     }
     memset(body, 0, sizeof(body));
     memset(provided, 0, sizeof(provided));
@@ -398,7 +394,7 @@ esp_err_t logout(httpd_req_t* r) {
         char csrf[64] = {};
         if (!getHeader(r, "X-CSRF-Token", csrf, sizeof(csrf)) ||
             strlen(csrf) != TOKEN_HEX_LEN ||
-            !equalConstantTime(csrf, session->csrf, TOKEN_HEX_LEN)) {
+            !constantTimeEquals(csrf, session->csrf, TOKEN_HEX_LEN)) {
             return error(r, "403 Forbidden", "csrf_blocked");
         }
         session->active = false;
@@ -422,7 +418,7 @@ esp_err_t command(httpd_req_t* r) {
     char csrf[64] = {};
     if (!getHeader(r, "X-CSRF-Token", csrf, sizeof(csrf)) ||
         strlen(csrf) != TOKEN_HEX_LEN ||
-        !equalConstantTime(csrf, s->csrf, TOKEN_HEX_LEN)) {
+        !constantTimeEquals(csrf, s->csrf, TOKEN_HEX_LEN)) {
         return error(r, "403 Forbidden", "csrf_blocked");
     }
     char type[64] = {};
@@ -458,13 +454,8 @@ esp_err_t command(httpd_req_t* r) {
         const char* speed = obj["fan_speed"].as<const char*>();
         if (obj["fan_speed"].as<JsonString>().size() != strlen(speed))
             return error(r, "422 Unprocessable Entity", "unsupported_action");
-        if (strcmp(speed,"auto") == 0) fan = 0x80;
-        else if (strcmp(speed,"1") == 0) fan = 0x82;
-        else if (strcmp(speed,"2") == 0) fan = 0x86;
-        else if (strcmp(speed,"3") == 0) fan = 0x81;
-        else if (strcmp(speed,"4") == 0) fan = 0x85;
-        else if (strcmp(speed,"5") == 0) fan = 0x83;
-        else return error(r, "422 Unprocessable Entity", "unsupported_action");
+        if (!ToshibaCodec::fanFromName(speed, fan))
+            return error(r, "422 Unprocessable Entity", "unsupported_action");
         temp = obj["temperature_c"].as<int>();
         if (temp < 17 || temp > 30) return error(r, "422 Unprocessable Entity", "unsupported_action");
         power = obj["power"].as<bool>();

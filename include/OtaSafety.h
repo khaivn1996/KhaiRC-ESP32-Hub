@@ -11,7 +11,6 @@ namespace OtaSafety {
     void wifiDisconnectReason(std::uint8_t reason);
     // OTA is blocked if rollback support cannot be verified.
     bool canAcceptUpdate();
-    bool pendingVerification();
     const char* stateName();
     const char* slotName();
     const char* buildId();

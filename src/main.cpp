@@ -13,7 +13,7 @@ void setup() {
     Serial.println();
     Serial.println("======================");
     Serial.println(" KhaiRC ESP32 Hub");
-    Serial.println(" Firmware v0.4.0-ota1");
+    Serial.printf(" Firmware v%s\n", ApiServer::FIRMWARE_VERSION);
     Serial.println("======================");
 
     OtaSafety::begin();

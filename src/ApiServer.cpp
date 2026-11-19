@@ -23,7 +23,9 @@ namespace {
         String json = "{";
         json += "\"status\":\"ok\",";
         json += "\"device\":\"KhaiRC-ESP32-Hub\",";
-        json += "\"firmware\":\"0.4.0-ota1\",";
+        json += "\"firmware\":\"";
+        json += ApiServer::FIRMWARE_VERSION;
+        json += "\",";
         json += "\"boot_id\":\"";
         json += String(bootId, HEX);
         json += "\",";
@@ -41,11 +43,41 @@ namespace {
 
         target.send(200, "application/json", json);
     }
+
+    void sendMethodNotAllowed(const char* allow) {
+        server.sendHeader("Allow", allow);
+        server.send(405, "application/json", "{\"error\":{\"code\":\"method_not_allowed\"}}");
+    }
 }
 
 namespace ApiServer {
 
 bool ready() { return serverRunning && WifiService::connected(); }
+
+String systemJson() {
+    String json = "{";
+    json += "\"chip\":\"";
+    json += ESP.getChipModel();
+    json += "\",\"flash_mb\":";
+    json += String(ESP.getFlashChipSize() / 1048576);
+    json += ",\"psram_mb\":";
+    json += String(ESP.getPsramSize() / 1048576);
+    json += ",\"ip\":\"";
+    json += WiFi.localIP().toString();
+    json += "\",\"rssi_dbm\":";
+    json += String(WiFi.RSSI());
+    json += "}";
+    return json;
+}
+
+String capabilitiesJson() {
+    String json = "{\"schema_version\":1,\"capabilities\":{\"ir_send\":";
+    json += IrDiagnostics::isReady() ? "true" : "false";
+    json += ",\"tuya_control\":false,\"cloud_access\":false,\"ota_update\":";
+    json += OtaService::available() ? "true" : "false";
+    json += "}}";
+    return json;
+}
 
 void begin() {
 
@@ -72,20 +104,7 @@ void begin() {
     });
 
     server.on("/api/v1/system", HTTP_GET, []() {
-        String json = "{";
-        json += "\"chip\":\"";
-        json += ESP.getChipModel();
-        json += "\",\"flash_mb\":";
-        json += String(ESP.getFlashChipSize() / 1048576);
-        json += ",\"psram_mb\":";
-        json += String(ESP.getPsramSize() / 1048576);
-        json += ",\"ip\":\"";
-        json += WiFi.localIP().toString();
-        json += "\",\"rssi_dbm\":";
-        json += String(WiFi.RSSI());
-        json += "}";
-
-        server.send(200, "application/json", json);
+        server.send(200, "application/json", systemJson());
     });
 
     server.on("/api/v1/devices", HTTP_GET, []() {
@@ -97,16 +116,7 @@ void begin() {
     });
 
     server.on("/api/v1/capabilities", HTTP_GET, []() {
-        String json = "{\"schema_version\":1,\"capabilities\":{\"ir_send\":";
-        json += IrDiagnostics::isReady() ? "true" : "false";
-        json += ",\"tuya_control\":false,\"cloud_access\":false,\"ota_update\":";
-        json += OtaService::available() ? "true" : "false";
-        json += "}}";
-        server.send(
-            200,
-            "application/json",
-            json
-        );
+        server.send(200, "application/json", capabilitiesJson());
     });
 
     CommandApi::registerRoutes(server);
@@ -117,20 +127,12 @@ void begin() {
         String path = server.uri();
 
         if (path == "/") {
-            server.sendHeader("Allow", "GET");
-            server.send(405, "application/json", "{\"error\":{\"code\":\"method_not_allowed\"}}");
+            sendMethodNotAllowed("GET");
             return;
         }
-        
+
         if (path == "/api/v1/commands") {
-            server.sendHeader("Allow", "POST");
-
-            server.send(
-                405,
-                "application/json",
-                "{\"error\":{\"code\":\"method_not_allowed\"}}"
-            );
-
+            sendMethodNotAllowed("POST");
             return;
         }
 
@@ -139,12 +141,7 @@ void begin() {
         if (path.startsWith(devicePrefix)) {
 
             if (server.method() != HTTP_GET) {
-                server.sendHeader("Allow", "GET");
-                server.send(
-                    405,
-                    "application/json",
-                    "{\"error\":{\"code\":\"method_not_allowed\"}}"
-                );
+                sendMethodNotAllowed("GET");
                 return;
             }
 
@@ -171,12 +168,7 @@ void begin() {
             path == "/api/v1/capabilities";
 
         if (knownPath && server.method() != HTTP_GET) {
-            server.sendHeader("Allow", "GET");
-            server.send(
-                405,
-                "application/json",
-                "{\"error\":{\"code\":\"method_not_allowed\"}}"
-            );
+            sendMethodNotAllowed("GET");
             return;
         }
 

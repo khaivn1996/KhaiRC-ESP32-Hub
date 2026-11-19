@@ -9,6 +9,18 @@ inline bool validFan(std::uint8_t fan) {
     return fan == 0x80 || fan == 0x82 || fan == 0x86 ||
            fan == 0x81 || fan == 0x85 || fan == 0x83;
 }
+// Maps the API fan_speed name to its captured protocol byte.
+inline bool fanFromName(const char* name, std::uint8_t& out) {
+    if (name == nullptr) return false;
+    if (std::strcmp(name, "auto") == 0) out = 0x80;
+    else if (std::strcmp(name, "1") == 0) out = 0x82;
+    else if (std::strcmp(name, "2") == 0) out = 0x86;
+    else if (std::strcmp(name, "3") == 0) out = 0x81;
+    else if (std::strcmp(name, "4") == 0) out = 0x85;
+    else if (std::strcmp(name, "5") == 0) out = 0x83;
+    else return false;
+    return true;
+}
 inline std::uint8_t checksum(const std::uint8_t* frame, std::size_t n) {
     std::uint8_t xorValue = 0;
     for (std::size_t i = 0; i < n; ++i) xorValue ^= frame[i];

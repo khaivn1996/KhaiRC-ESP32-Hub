@@ -4,19 +4,60 @@
 #include <WebServer.h>
 #include <cstring>
 
+#include "ApiAuth.h"
 #include "CommandApi.h"
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
-#include "secrets.h"
 
 namespace {
 
 constexpr size_t MAX_BODY_SIZE = 512;
 
-static_assert(
-    sizeof(HUB_API_KEY) == 65,
-    "HUB_API_KEY must contain 64 characters"
-);
+// The route has a raw callback, so WebServer streams the body here in fixed
+// chunks instead of growing a heap buffer to the client's Content-Length
+// before authentication. Only the first MAX_BODY_SIZE bytes are kept; the
+// final handler still rejects anything larger with 413.
+char rawBody[MAX_BODY_SIZE + 1] = {};
+size_t rawLength = 0;
+bool rawComplete = false;
+
+void resetBody() {
+    rawLength = 0;
+    rawComplete = false;
+    rawBody[0] = '\0';
+}
+
+// Clears the captured body on every exit path of the final handler.
+struct BodyReset {
+    ~BodyReset() { resetBody(); }
+};
+
+void receiveBody(WebServer& server) {
+    // Multipart file uploads also reach this callback; they carry no raw body.
+    if (!server.hasRaw()) {
+        return;
+    }
+    HTTPRaw& raw = server.raw();
+    switch (raw.status) {
+    case RAW_START:
+        resetBody();
+        break;
+    case RAW_WRITE: {
+        const size_t room = MAX_BODY_SIZE - rawLength;
+        const size_t count = raw.currentSize < room ? raw.currentSize : room;
+        memcpy(rawBody + rawLength, raw.buf, count);
+        rawLength += count;
+        rawBody[rawLength] = '\0';
+        break;
+    }
+    case RAW_END:
+        rawComplete = true;
+        break;
+    case RAW_ABORTED:
+        resetBody();
+        break;
+    }
+}
 
 void sendError(
     WebServer& server,
@@ -32,26 +73,11 @@ void sendError(
 
 bool authenticate(WebServer& server) {
     const String provided = server.header("X-API-Key");
-
-    const size_t expectedLength = strlen(HUB_API_KEY);
-
-    if (provided.length() != expectedLength) {
-        return false;
-    }
-
-    // Compare all bytes without early exit.
-    uint8_t diff = 0;
-
-    for (size_t i = 0; i < expectedLength; ++i) {
-        diff |= static_cast<uint8_t>(
-            provided[i] ^ HUB_API_KEY[i]
-        );
-    }
-
-    return diff == 0;
+    return ApiAuth::hubKeyMatches(provided.c_str(), provided.length());
 }
 
 void handleCommand(WebServer& server) {
+    const BodyReset bodyReset;
 
     // 1. Authenticate before processing command data.
     if (!authenticate(server)) {
@@ -74,7 +100,9 @@ void handleCommand(WebServer& server) {
         return;
     }
 
-    const String body = server.arg("plain");
+    // Built from a C string: like WebServer's former "plain" argument, the
+    // body ends at the first NUL byte.
+    const String body = rawComplete ? String(rawBody) : String();
 
     if (body.length() > MAX_BODY_SIZE) {
         sendError(server, 413, "payload_too_large");
@@ -201,6 +229,9 @@ void registerRoutes(WebServer& server) {
         HTTP_POST,
         [serverPtr]() {
             handleCommand(*serverPtr);
+        },
+        [serverPtr]() {
+            receiveBody(*serverPtr);
         }
     );
 

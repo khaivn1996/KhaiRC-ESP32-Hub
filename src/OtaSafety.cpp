@@ -73,7 +73,6 @@ OtaSafetyPolicy::HealthGate healthGate;
 bool pending = false;
 bool validationAttempted = false;
 SemaphoreHandle_t verifyMutex = nullptr;
-bool confirmed = false;
 bool otaStateKnown = false;
 esp_ota_img_states_t otaState = ESP_OTA_IMG_UNDEFINED;
 std::uint32_t bootAtMs = 0;
@@ -131,7 +130,6 @@ void begin() {
     const esp_err_t result = part ? esp_ota_get_state_partition(part, &otaState) : ESP_FAIL;
     otaStateKnown = result == ESP_OK;
     pending = otaStateKnown && otaState == ESP_OTA_IMG_PENDING_VERIFY;
-    confirmed = !pending;
     // The SDK's formatted hash is capped by CONFIG_APP_RETRIEVE_LEN_ELF_SHA
     // (9 in this toolchain), even with a larger destination buffer. Read the
     // descriptor directly; volatile preserves bytes patched by esptool.
@@ -155,7 +153,6 @@ void begin() {
         validJournal(previous)) {
         printJournal("previous", previous);
         // Keep last prior record after the current boot replaces "now".
-        previous.checksum = checksum(previous);
         (void)prefs.putBytes("prev", &previous, sizeof(previous));
         current.seq = previous.seq + 1;
     } else {
@@ -201,7 +198,6 @@ void wifiDisconnectReason(std::uint8_t reason) {
     disconnectCode.store(reason, std::memory_order_relaxed);
 }
 
-bool pendingVerification() { return pending; }
 const char* buildId() { return buildIdBuffer; }
 const char* slotName() { return slotBuffer; }
 const char* stateName() {
@@ -222,7 +218,7 @@ bool canAcceptUpdate() {
 #if defined(CONFIG_APP_ROLLBACK_ENABLE)
     // Fail closed when framework never called our hook, pending confirmation
     // is unresolved, or OTA partition metadata cannot be read.
-    return hookInvoked && !pending && confirmed && otaStateKnown &&
+    return hookInvoked && !pending && otaStateKnown &&
            (otaState == ESP_OTA_IMG_VALID || otaState == ESP_OTA_IMG_UNDEFINED) &&
            esp_ota_get_app_partition_count() >= 2;
 #else
@@ -263,7 +259,6 @@ void loop() {
     const esp_err_t err = esp_ota_mark_app_valid_cancel_rollback();
     if (err == ESP_OK) {
         pending = false;
-        confirmed = true;
         otaState = ESP_OTA_IMG_VALID;
         setStage(6);
         Serial.printf("[OTA SAFE] confirmed VALID after %lu ms, build=%s\n",
