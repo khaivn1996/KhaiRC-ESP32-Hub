@@ -69,6 +69,11 @@ const char kHtml[] PROGMEM = R"KHAIRCSTAGE3A(<!doctype html>
       <div id="notice" class="notice" role="status" aria-live="polite">Các trạng thái trên màn hình chỉ là ước tính sau khi gửi IR, không phải phản hồi trực tiếp từ Toshiba.</div>
       <button id="review" class="full danger hidden">TÔI ĐÃ KIỂM TRA MÁY LẠNH · MỞ KHÓA</button>
     </div>
+    <div class="card" id="plug-card">
+      <div class="control-head"><div><div class="eyebrow">Rạng Đông OC09</div><p class="small" style="margin:6px 0 0">Ổ cắm 2 · Tuya LAN</p></div><span id="plug-badge" class="status-pill">Chưa rõ</span></div>
+      <div class="actions"><button id="plug-on" class="primary" disabled>BẬT Ổ CẮM 2</button><button id="plug-off" class="danger" disabled>TẮT Ổ CẮM 2</button></div>
+      <div id="plug-notice" class="notice" role="status" aria-live="polite">Mỗi lần bấm gửi đúng một lệnh trong LAN, không tự gửi lại.</div>
+    </div>
     <div class="footer"><span class="small">HTTPS · KhaiRC Hub · Chỉ Toshiba</span><button id="logout" class="ghost">Đăng xuất</button></div>
   </section>
   <p class="small" style="text-align:center">Điều khiển trong LAN qua HTTPS. Mở khóa bằng cloud là tùy chọn; không có OTA trong giao diện này.</p>
@@ -102,7 +107,56 @@ const char kScript[] PROGMEM = R"KHAIRCSTAGE3A('use strict';
     }
     for (const id of ['fix','swing-on','swing-off']) $(id).disabled = disabled || state.power !== true;
     $('review').classList.toggle('hidden', !state.uncertain);
+    renderPlug();
   }
+  // Rang Dong OC09 "O cam 2": independent from the Toshiba lock. Explicit taps only.
+  const PLUG_ID = 'rangdong_oc09_s2';
+  const plug = { busy: false, power: null, verified: false, hubOk: false };
+  const setPlugNotice = (text, kind = '') => { $('plug-notice').textContent = text; $('plug-notice').className = 'notice' + (kind ? ' ' + kind : ''); };
+  function renderPlug() {
+    const disabled = plug.busy || !plug.hubOk || !state.csrf;
+    $('plug-on').disabled = disabled;
+    $('plug-off').disabled = disabled;
+    $('plug-badge').textContent = plug.power === null ? 'Chưa rõ'
+      : plug.verified ? (plug.power ? 'Đang BẬT' : 'Đang TẮT')
+      : (plug.power ? 'Đã gửi BẬT' : 'Đã gửi TẮT');
+    $('plug-badge').classList.toggle('live', plug.verified && plug.power === true);
+  }
+  async function sendPlug(action) {
+    if (!state.csrf || plug.busy || !plug.hubOk) return;
+    plug.busy = true; renderPlug();
+    setPlugNotice('Đang gửi đúng một lệnh tới ổ cắm…');
+    try {
+      const response = await fetch('/web/command', {
+        method:'POST', credentials:'same-origin', cache:'no-store', redirect:'error',
+        headers:{'Content-Type':'application/json','X-CSRF-Token':state.csrf},
+        body:JSON.stringify({device_id:PLUG_ID, action:action})
+      });
+      if (response.status === 401) { state.csrf = null; setAuthenticated(false); setConnected('Phiên hết hạn', false); return; }
+      const data = await response.json();
+      if (!response.ok) {
+        const code = (data && data.error && typeof data.error.code === 'string') ? data.error.code : 'http_' + response.status;
+        // Only tuya_no_ack means the command may have reached the plug.
+        if (code === 'tuya_no_ack') throw Error('plug_uncertain');
+        setPlugNotice('Hub từ chối lệnh (' + code + '). Không tự gửi lại.', 'error');
+        return;
+      }
+      if (data.schema_version !== 1 || data.device_id !== PLUG_ID || data.action !== action ||
+          data.transport !== 'tuya_lan' || data.status !== 'sent') throw Error('invalid_ack');
+      if (data.state_verified === true && typeof data.power === 'boolean') {
+        plug.power = data.power; plug.verified = true;
+        setPlugNotice('Ổ cắm 2 xác nhận: ' + (data.power ? 'BẬT' : 'TẮT') + '.', 'ok');
+      } else {
+        plug.power = action === 'power_on'; plug.verified = false;
+        setPlugNotice('Ổ cắm đã nhận lệnh nhưng chưa báo trạng thái; hãy quan sát ổ cắm.', 'ok');
+      }
+    } catch (_) {
+      plug.power = null; plug.verified = false;
+      setPlugNotice('CHƯA RÕ ổ cắm đã đổi trạng thái hay chưa. Kiểm tra ổ cắm trước khi bấm lại. Không tự gửi lại.', 'error');
+    } finally { plug.busy = false; renderPlug(); }
+  }
+  $('plug-on').addEventListener('click', () => sendPlug('power_on'));
+  $('plug-off').addEventListener('click', () => sendPlug('power_off'));
   async function boot() {
     setAuthenticated(false);
     try {
@@ -119,6 +173,7 @@ const char kScript[] PROGMEM = R"KHAIRCSTAGE3A('use strict';
       const dataHealth = await health.json();
       if (dataHealth.status !== 'ok' || dataHealth.device !== 'KhaiRC-ESP32-Hub') throw Error('health_invalid');
       setConnected('LAN · TLS', true);
+      plug.hubOk = true;
       state.busy = false; render();
     } catch (_) {
       setConnected('Không kết nối Hub', false);
@@ -180,6 +235,7 @@ const char kScript[] PROGMEM = R"KHAIRCSTAGE3A('use strict';
     try { await fetch('/web/logout', {method:'POST', credentials:'same-origin', redirect:'error', headers:{'X-CSRF-Token':state.csrf}}); }
     catch (_) { /* Session will expire server-side. */ }
     state.csrf = null; state.power = null; state.swing = null;
+    plug.power = null; plug.verified = false; plug.hubOk = false;
     setAuthenticated(false); setConnected('Đã đăng xuất', false); render();
   });
   render();

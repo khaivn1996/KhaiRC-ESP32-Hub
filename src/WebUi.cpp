@@ -12,6 +12,7 @@
 #include "OtaService.h"
 #include "ApiAuth.h"
 #include "ToshibaCodec.h"
+#include "TuyaLocal.h"
 
 #if __has_include("web_password.h")
 #include "web_password.h"
@@ -411,6 +412,38 @@ esp_err_t status(httpd_req_t* r) {
     return respond(r, "200 OK", "application/json", response);
 }
 
+// Rang Dong OC09 "O cam 2" (Tuya LAN 3.4). Explicit set ON/OFF, one attempt, no retry.
+esp_err_t plugCommand(httpd_req_t* r, JsonObject obj) {
+    constexpr char kPlugId[] = "rangdong_oc09_s2";
+    const char* device = obj["device_id"].as<const char*>();
+    const char* action = obj["action"].as<const char*>();
+    if (obj.size() != 2 || !device || !action ||
+        obj["device_id"].as<JsonString>().size() != strlen(device) ||
+        obj["action"].as<JsonString>().size() != strlen(action) ||
+        strcmp(device, kPlugId) != 0) {
+        return error(r, "422 Unprocessable Entity", "unsupported_action");
+    }
+    const bool on = strcmp(action, "power_on") == 0;
+    if (!on && strcmp(action, "power_off") != 0)
+        return error(r, "422 Unprocessable Entity", "unsupported_action");
+    if (OtaService::rebootPending()) return error(r, "503 Service Unavailable", "device_not_ready");
+    if (!TuyaLocal::configured()) return error(r, "503 Service Unavailable", "tuya_not_configured");
+    const TuyaLocal::Result result = TuyaLocal::setPower(on);
+    if (result.status == TuyaLocal::Status::Busy)
+        return error(r, "503 Service Unavailable", "device_busy");
+    if (result.status != TuyaLocal::Status::Ok) {
+        return error(r, TuyaLocal::isTimeout(result.status) ? "504 Gateway Timeout" : "502 Bad Gateway",
+                     TuyaLocal::errorCode(result.status));
+    }
+    char response[200];
+    snprintf(response, sizeof(response),
+      "{\"schema_version\":1,\"device_id\":\"%s\",\"action\":\"%s\",\"transport\":\"tuya_lan\","
+      "\"status\":\"sent\",\"state_verified\":%s%s}",
+      kPlugId, on ? "power_on" : "power_off", result.verified ? "true" : "false",
+      result.verified ? (result.on ? ",\"power\":true" : ",\"power\":false") : "");
+    return respond(r, "200 OK", "application/json", response);
+}
+
 esp_err_t command(httpd_req_t* r) {
     Session* s = currentSession(r);
     if (!s) return error(r, "401 Unauthorized", "login_required");
@@ -432,6 +465,8 @@ esp_err_t command(httpd_req_t* r) {
     if (deserializeJson(doc, body, strlen(body), DeserializationOption::NestingLimit(3)) ||
         !doc.is<JsonObject>()) return error(r, "400 Bad Request", "invalid_json");
     JsonObject obj = doc.as<JsonObject>();
+    // Toshiba bodies never carry device_id; only the OC09 plug card sends it.
+    if (!obj["device_id"].isNull()) return plugCommand(r, obj);
     const char* action = obj["action"].as<const char*>();
     if (!action || obj["action"].as<JsonString>().size() != strlen(action)) {
         return error(r, "422 Unprocessable Entity", "unsupported_action");
