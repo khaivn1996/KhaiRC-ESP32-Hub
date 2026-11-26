@@ -70,8 +70,8 @@ const char kHtml[] PROGMEM = R"KHAIRCSTAGE3A(<!doctype html>
       <button id="review" class="full danger hidden">TÔI ĐÃ KIỂM TRA MÁY LẠNH · MỞ KHÓA</button>
     </div>
     <div class="card" id="plug-card">
-      <div class="control-head"><div><div class="eyebrow">Rạng Đông OC09</div><p class="small" style="margin:6px 0 0">Ổ cắm 2 · Tuya LAN</p></div><span id="plug-badge" class="status-pill">Chưa rõ</span></div>
-      <div class="actions"><button id="plug-on" class="primary" disabled>BẬT Ổ CẮM 2</button><button id="plug-off" class="danger" disabled>TẮT Ổ CẮM 2</button></div>
+      <div class="control-head"><div><div class="eyebrow">Rạng Đông OC09</div><p class="small" style="margin:6px 0 0">Ổ cắm 4 · Tuya LAN</p></div><span id="plug-badge" class="status-pill">Chưa rõ</span></div>
+      <div class="actions"><button id="plug-on" class="primary" disabled>BẬT Ổ CẮM 4</button><button id="plug-off" class="danger" disabled>TẮT Ổ CẮM 4</button></div>
       <div id="plug-notice" class="notice" role="status" aria-live="polite">Mỗi lần bấm gửi đúng một lệnh trong LAN, không tự gửi lại.</div>
     </div>
     <div class="footer"><span class="small">HTTPS · KhaiRC Hub · Chỉ Toshiba</span><button id="logout" class="ghost">Đăng xuất</button></div>
@@ -109,8 +109,8 @@ const char kScript[] PROGMEM = R"KHAIRCSTAGE3A('use strict';
     $('review').classList.toggle('hidden', !state.uncertain);
     renderPlug();
   }
-  // Rang Dong OC09 "O cam 2": independent from the Toshiba lock. Explicit taps only.
-  const PLUG_ID = 'rangdong_oc09_s2';
+  // Rang Dong OC09 "O cam 4": independent from the Toshiba lock. Explicit taps only.
+  const PLUG_ID = 'rangdong_oc09_s4';
   const plug = { busy: false, power: null, verified: false, hubOk: false };
   const setPlugNotice = (text, kind = '') => { $('plug-notice').textContent = text; $('plug-notice').className = 'notice' + (kind ? ' ' + kind : ''); };
   function renderPlug() {
@@ -145,7 +145,7 @@ const char kScript[] PROGMEM = R"KHAIRCSTAGE3A('use strict';
           data.transport !== 'tuya_lan' || data.status !== 'sent') throw Error('invalid_ack');
       if (data.state_verified === true && typeof data.power === 'boolean') {
         plug.power = data.power; plug.verified = true;
-        setPlugNotice('Ổ cắm 2 xác nhận: ' + (data.power ? 'BẬT' : 'TẮT') + '.', 'ok');
+        setPlugNotice('Ổ cắm 4 xác nhận: ' + (data.power ? 'BẬT' : 'TẮT') + '.', 'ok');
       } else {
         plug.power = action === 'power_on'; plug.verified = false;
         setPlugNotice('Ổ cắm đã nhận lệnh nhưng chưa báo trạng thái; hãy quan sát ổ cắm.', 'ok');

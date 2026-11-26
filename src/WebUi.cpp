@@ -412,9 +412,9 @@ esp_err_t status(httpd_req_t* r) {
     return respond(r, "200 OK", "application/json", response);
 }
 
-// Rang Dong OC09 "O cam 2" (Tuya LAN 3.4). Explicit set ON/OFF, one attempt, no retry.
+// Rang Dong OC09 "O cam 4" (Tuya LAN 3.4). Explicit set ON/OFF, one attempt, no retry.
 esp_err_t plugCommand(httpd_req_t* r, JsonObject obj) {
-    constexpr char kPlugId[] = "rangdong_oc09_s2";
+    constexpr char kPlugId[] = "rangdong_oc09_s4";
     const char* device = obj["device_id"].as<const char*>();
     const char* action = obj["action"].as<const char*>();
     if (obj.size() != 2 || !device || !action ||

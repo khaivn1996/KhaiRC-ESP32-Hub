@@ -26,7 +26,7 @@
 #define TUYA_OC09_LOCAL_KEY ""
 #endif
 #ifndef TUYA_OC09_DP
-#define TUYA_OC09_DP 2
+#define TUYA_OC09_DP 4
 #endif
 
 namespace {

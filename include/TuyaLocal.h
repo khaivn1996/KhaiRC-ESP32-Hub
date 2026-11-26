@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-// Rang Dong OC09 "O cam 2" over Tuya LAN protocol 3.4. Web UI (HTTPS) only.
+// Rang Dong OC09 "O cam 4" over Tuya LAN protocol 3.4. Web UI (HTTPS) only.
 namespace TuyaLocal {
 
 enum class Status : uint8_t {
