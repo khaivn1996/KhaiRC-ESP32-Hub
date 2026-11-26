@@ -1,8 +1,8 @@
 ---
 spec_version: 1
 project: KhaiRC-ESP32-Hub
-last_synced_commit: f065965e4ecdd88c9f21fc338a0fece519e238b1
-last_synced_at: 2026-11-19
+last_synced_commit: cfd0ae9bbe9965700d1a68e6077874cbf6829ca6
+last_synced_at: 2026-11-26
 last_full_scan_commit: f065965e4ecdd88c9f21fc338a0fece519e238b1
 ---
 
@@ -15,14 +15,14 @@ last_full_scan_commit: f065965e4ecdd88c9f21fc338a0fece519e238b1
 
 - Firmware Arduino trên ESP32-S3, build bằng PlatformIO; tên môi trường `esp32-s3-n16r8`. Cấu hình flash 16 MB QIO, PSRAM 8 MB OPI.
 - Firmware tự khai báo phiên bản `0.4.0-ota1`; Wi-Fi STA, ba server: REST HTTP cổng 80, OTA HTTP cổng 8081 (LAN), HTTPS cổng 443 (chỉ bật khi có credential TLS cục bộ).
-- Registry có năm thiết bị: quạt TAIZ và Toshiba báo `ready`/`not_ready` theo driver IR; ổ cắm Milife (miIO LAN) báo `configured`/`not_configured`; Daikin và ổ cắm Tuya báo `not_configured`.
-- HTTP/80 với `X-API-Key`: quạt HIGH/SWING/OFF, Toshiba FIX; đọc trạng thái Milife (chỉ đọc). HTTPS/443: Toshiba `state` (power/nhiệt độ/quạt), `fix`, `swing_on`, `swing_off` qua API key hoặc Web UI có session cookie + CSRF.
+- Registry có năm thiết bị: quạt TAIZ và Toshiba báo `ready`/`not_ready` theo driver IR, Milife (miIO LAN) báo `configured`/`not_configured`, còn Daikin và mục Tuya cloud `rangdong_plug_01` báo `not_configured`.
+- HTTP/80 với `X-API-Key`: quạt HIGH/SWING/OFF, Toshiba FIX và đọc trạng thái Milife. HTTPS/443 hỗ trợ lệnh Toshiba `state` (power/nhiệt độ/quạt), `fix`, `swing_on`, `swing_off` qua API key hoặc Web UI. Web UI dùng session cookie + CSRF và có thêm bật/tắt Ổ cắm 2 Rạng Đông OC09 qua Tuya LAN 3.4 (§5.14, §6.5).
 - IR phát qua RMT trên GPIO4, có khóa `TxGate` vì cả Arduino loop và task HTTPS có thể phát. `status: sent`, `state_verified: false` chỉ xác nhận phát xong.
 - `OtaSafety` quản lý rollback ảnh `PENDING_VERIFY` (health gate 15 s, hạn 90 s) và ghi nhật ký boot vào NVS; OTA bị khóa nếu không xác minh được rollback.
 - Đăng nhập thủ công trên `/ui` dùng mật khẩu Web UI riêng. Web Vault tùy chọn đăng nhập Google, đọc Firestore và giải mã trong trình duyệt để đăng nhập Hub bằng API key (§5.10, §5.12).
 - Không phát IR tự động khi khởi động; Serial `s`/`S` phát TAIZ SWING, `f`/`F` phát Toshiba FIX. Chưa có Tuya cloud, học/thu IR, lưu trạng thái thiết bị.
 
-Nguồn: `platformio.ini`, `src/main.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/OtaSafety.cpp`.
+Nguồn: `platformio.ini`, `src/main.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`, `src/DeviceRegistry.cpp`, `src/IrDiagnostics.cpp`, `src/OtaSafety.cpp`, `src/WebUi.cpp`, `src/TuyaLocal.cpp`.
 
 ## 1. Phần cứng & pin map
 
@@ -70,12 +70,12 @@ Nguồn: `platformio.ini`, `web/vault/package.json`, `tools/*.py`, `tools/monito
 
 ## 3. Cấu trúc thư mục & kiến trúc
 
-HEAD có 93 file tracked gồm `src` (15), `include` (21), `test` (7), `tools` (10), `docs` (5), `web` (6), `.agents` (10), `.claude` (10), `backups` (3), `lib` (1), `.vscode` (1) và 4 file gốc.
+HEAD có 96 file tracked gồm `src` (16), `include` (23), `test` (7), `tools` (10), `docs` (5), `web` (6), `.agents` (10), `.claude` (10), `backups` (3), `lib` (1), `.vscode` (1) và 4 file gốc.
 
 | Vị trí | Vai trò |
 |---|---|
 | `src/main.cpp` | Điểm vào Arduino, thứ tự khởi tạo/polling, phím thử IR thủ công |
-| `src/`, `include/` | Module gồm Wi-Fi, ApiServer, ApiAuth, CommandApi, DeviceRegistry, IrDiagnostics (+`ToshibaCodec`), OtaService, OtaPage, OtaSafety (+`OtaSafetyPolicy`), HttpsService, WebUi, WebUiPage, MiotLocal và VaultWebBundle |
+| `src/`, `include/` | Module gồm Wi-Fi, ApiServer, ApiAuth, CommandApi, DeviceRegistry, IrDiagnostics (+`ToshibaCodec`), OtaService, OtaPage, OtaSafety (+`OtaSafetyPolicy`), HttpsService, WebUi, WebUiPage, MiotLocal, TuyaLocal và VaultWebBundle |
 | `tools/` | Monitor HTTP, đọc spec, test OTA/Wi-Fi/login/vault, build bundle, sinh header TLS, sửa IntelliSense |
 | `web/vault/` | Source JS, dependency/lockfile và test Node; bundle sinh trong `include/VaultWebBundle.h`, `src/VaultWebBundle.cpp` |
 | `docs/WEB_VAULT.md` | Cấu hình Firebase, crypto/codec, KAT và thử board |
@@ -86,7 +86,7 @@ HEAD có 93 file tracked gồm `src` (15), `include` (21), `test` (7), `tools` (
 Luồng phụ thuộc:
 - `main → OtaSafety, WifiService, DeviceRegistry, ApiServer, HttpsService, IrDiagnostics`.
 - `ApiServer → WifiService, DeviceRegistry, CommandApi, MiotLocal, IrDiagnostics, OtaService, OtaSafety`; `OtaService → OtaPage, OtaSafety, esp_ota_*`.
-- `HttpsService → ApiAuth, ApiServer, WifiService, DeviceRegistry, IrDiagnostics, MiotLocal, OtaService, OtaSafety, WebUi`. `WebUi → ApiAuth, WebUiPage, VaultWebBundle, IrDiagnostics, OtaService, ToshibaCodec`. Browser vault dùng Firebase Auth, Firestore REST và WebCrypto trước khi POST `/web/login`.
+- `HttpsService → ApiAuth, ApiServer, WifiService, DeviceRegistry, IrDiagnostics, MiotLocal, OtaService, OtaSafety, WebUi`. `WebUi → ApiAuth, WebUiPage, VaultWebBundle, IrDiagnostics, OtaService, ToshibaCodec, TuyaLocal`. `TuyaLocal` dùng `WifiService`, `WiFiClient`, mbedTLS và ArduinoJson. Browser vault dùng Firebase Auth, Firestore REST và WebCrypto trước khi POST `/web/login`.
 - `CommandApi → ApiAuth, DeviceRegistry, IrDiagnostics`. `DeviceRegistry → IrDiagnostics, MiotLocal`. `MiotLocal → ApiAuth`. `IrDiagnostics → ToshibaCodec, RMT`.
 - `OtaSafety → OtaSafetyPolicy, ApiServer::ready(), HttpsService::ready(), IrDiagnostics::isReady(), Preferences`; `WifiService` gửi lý do disconnect cho `OtaSafety`.
 
@@ -102,12 +102,14 @@ Nguồn: `git ls-files`, `src/*.cpp`, `include/*.h`, `.gitignore`.
 | Task/ngữ cảnh | Entry | Stack | Priority | Vai trò |
 |---|---|---|---|---|
 | Arduino loop (framework) | `setup()`/`loop()` | Không đặt trong repo | Không đặt | Wi-Fi, HTTP/80, OTA/8081, Serial, OtaSafety |
-| HTTPS server (ESP-IDF httpd) | `httpd_ssl_start` | 8192 | Mặc định `HTTPD_SSL_CONFIG_DEFAULT` | Handler HTTPS/Web UI, có thể phát IR và đọc miIO |
+| HTTPS server (ESP-IDF httpd) | `httpd_ssl_start` | 8192 | Mặc định `HTTPD_SSL_CONFIG_DEFAULT` | Handler HTTPS/Web UI, có thể phát IR, đọc miIO và gửi lệnh Tuya LAN |
 | `ota_guard` | `verifyDeadlineTask` | 4096 | 2 | Chỉ tạo khi ảnh đang `PENDING_VERIFY`; sau 90 s nếu vẫn pending thì rollback và reboot |
 
 Phát IR và đọc miIO chạy đồng bộ trong luồng gọi: trong lúc RMT phát (≤1000 ms chờ) hoặc miIO chờ (≤1,2 s hello + 3,2 s đọc), luồng đó không phục vụ request khác. Đồng bộ chéo luồng: IR dùng `std::atomic_flag` `TxGate` (bận → lỗi ngay, không xếp hàng); `initialized` là `std::atomic<bool>`; OtaSafety dùng mutex `verifyMutex` giữa loop và `ota_guard`. Không có watchdog/ISR tùy chỉnh. `MiotLocal::readPower()` không có khóa riêng (§10).
 
-Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`, `src/IrDiagnostics.cpp`, `src/OtaSafety.cpp`, `src/MiotLocal.cpp`.
+Lệnh Tuya LAN chạy đồng bộ trong task HTTPS. Driver đặt timeout kết nối TCP 1,5 s, chờ phản hồi thương lượng 2 s và chờ phản hồi lệnh 3 s. Khi nhận ACK, hạn chờ báo trạng thái được rút xuống tối đa 1,2 s tính từ ACK, trong giới hạn 3 s ban đầu (§5.14).
+
+Nguồn: `src/main.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`, `src/IrDiagnostics.cpp`, `src/OtaSafety.cpp`, `src/MiotLocal.cpp`, `src/TuyaLocal.cpp`.
 
 ## 5. Module
 
@@ -155,7 +157,9 @@ Nguồn: `include/CommandApi.h`, `src/CommandApi.cpp`.
 
 Availability phản ánh driver cục bộ (IR sẵn sàng; Milife có đủ IP/DID/token hợp lệ), không phải nguồn/kết nối của thiết bị. `supported_actions` của Toshiba chỉ liệt kê `fix` dù HTTPS còn nhận `state`/`swing_on`/`swing_off` (§10).
 
-Nguồn: `include/DeviceRegistry.h`, `src/DeviceRegistry.cpp`.
+Ổ cắm OC09 dùng ID `rangdong_oc09_s2` riêng trong Web UI (§5.14). Registry chỉ liệt kê mục Tuya cloud `rangdong_plug_01`.
+
+Nguồn: `include/DeviceRegistry.h`, `src/DeviceRegistry.cpp`, `src/WebUi.cpp`.
 
 ### 5.5 IR diagnostics (`IrDiagnostics`, `ToshibaCodec`)
 
@@ -220,10 +224,11 @@ Nguồn: `include/HttpsService.h`, `src/HttpsService.cpp`, `tools/create_https_c
 - API: `bool WebUi::registerRoutes(httpd_handle_t server);` (chỉ trên TLS), `void WebUi::resetSessions();`; `WebUiPage::html()`, `script()`, `manifest()`, `icon()`, `iconPng()`, `iconPngLen()`, `vaultHead()`, `vaultTail()`, `vaultMissing()` (PROGMEM, raw string `R"KHAIRCSTAGE3A(`).
 - `/ui` gửi trường `password` trong form urlencoded tới `POST /web/login`. Server tính SHA-256 của dữ liệu nhập và `HUB_WEB_PASSWORD`, rồi so 32 byte digest qua `ApiAuth::constantTimeEquals()`. Trường có `autocomplete="current-password"` để trình duyệt có thể lưu nếu người dùng đồng ý. Mật khẩu thiếu/rỗng trong cấu hình làm nhánh này trả `503`.
 - Cùng endpoint nhận trường `api_key` (64 byte ASCII in được) cho Web Vault và xác thực qua `ApiAuth::hubKeyMatches()`. Hai nhánh dùng chung bộ đếm: 5 lần sai → khóa 30 s (`429 try_later`). Thành công trả `303` về `/ui` và đặt cookie `khairc_sid` với `Secure`, `HttpOnly`, `SameSite=Strict`, `Path=/`, `Max-Age=900`. Có 2 slot xoay vòng, hết hạn 15 phút. GET `/web/session` cấp token CSRF riêng.
-- POST `/web/command`/`/web/logout` cần session + header `X-CSRF-Token` khớp + `Origin` (nếu có) bằng `https://<Host>`. Command chỉ Toshiba: `state` (đúng 4 field `action`, `power`, `temperature_c`, `fan_speed`), `fix`/`swing_on`/`swing_off` (chỉ field `action`). Content-Type phải đúng `application/json`, body ≤512, không NUL, `NestingLimit(3)`.
+- POST `/web/command`/`/web/logout` cần session + header `X-CSRF-Token` khớp + `Origin` (nếu có) bằng `https://<Host>`. Command dùng Content-Type đúng `application/json`, body ≤512, không NUL, `NestingLimit(3)`. Lệnh Toshiba gồm `state` (đúng 4 field `action`, `power`, `temperature_c`, `fan_speed`) và `fix`/`swing_on`/`swing_off` (chỉ field `action`). Body có `device_id` khác null đi vào nhánh OC09 (§6.5).
 - Header bảo mật: no-store, nosniff, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` để native login form giữ Origin cùng nguồn; trang `/ui` có CSP `script-src 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
 - `/ui` liên kết tới `/ui/vault` (§5.12). Hai cách đăng nhập tạo cùng loại phiên.
 - JS trang: nút bật/tắt/làm lạnh/nhiệt độ/quạt gửi `state`, nút FIX/SWING; trạng thái hiển thị là giả định phía client. Lỗi/không rõ → khóa "CHƯA RÕ", không tự gửi lại. PWA manifest `start_url:/ui`.
+- Thẻ OC09 bật nút khi kiểm tra health thành công, có CSRF và đang rảnh. Mỗi lần bấm gửi một lệnh. UI hiển thị trạng thái thiết bị báo về, lệnh đã gửi nếu chỉ có ACK, hoặc “Chưa rõ” khi mất xác nhận. Thẻ hoạt động độc lập với khóa “CHƯA RÕ” của Toshiba và xóa trạng thái khi đăng xuất.
 
 Nguồn: `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPage.cpp`.
 
@@ -256,17 +261,26 @@ Nguồn: `include/VaultWebBundle.h`, `src/VaultWebBundle.cpp`, `src/WebUi.cpp`, 
 
 Nguồn: `include/ApiAuth.h`, `src/ApiAuth.cpp`, `src/CommandApi.cpp`, `src/MiotLocal.cpp`, `src/HttpsService.cpp`, `src/WebUi.cpp`.
 
+### 5.14 Ổ cắm Rạng Đông OC09 (`TuyaLocal`)
+
+- API: `bool configured();`, `Result setPower(bool on);`, `const char* errorCode(Status status);`, `bool isTimeout(Status status);`. `Result` gồm `status`, `verified` và `on` (hợp lệ khi `verified=true`).
+- Dùng Tuya LAN 3.4 qua TCP/6668. Mỗi lần gửi lệnh mở một kết nối, thương lượng session key rồi gửi một `CONTROL_NEW` cho DP cấu hình. Frame dùng AES-128 và HMAC-SHA256. Driver dùng buffer tĩnh 512 byte và khóa `std::atomic_flag` theo cơ chế trả lỗi ngay khi bận.
+- Xác nhận nguồn dựa trên DP bool trong phản hồi `CONTROL_NEW` hoặc `STATUS`. ACK thành công mà thiếu DP trả `Ok` với `verified=false`. Timeout trong thương lượng là `Timeout`. Lỗi gửi có thể đã ghi một phần hoặc thiếu ACK sau khi gửi là `NoAck`, kết quả bật/tắt chưa rõ. Driver và Web UI gửi một lần, không retry.
+- Chỉ điều khiển qua `POST /web/command` trên HTTPS với ID `rangdong_oc09_s2`. Trạng thái hiển thị lấy từ phản hồi lệnh. Cấu hình cục bộ ở §7.
+
+Nguồn: `include/TuyaLocal.h`, `src/TuyaLocal.cpp`, `src/WebUi.cpp`, `src/WebUiPage.cpp`, `include/tuya_config.example.h`.
+
 ## 6. Giao tiếp ngoài
 
-### 6.1 Tuya cloud
+### 6.1 Tuya LAN và nhãn Tuya cloud
 
-Không áp dụng: không có Tuya SDK, client cloud, credential, DP hay reconnect. `tuya_cloud` chỉ là nhãn transport; capability `tuya_control`, `cloud_access` luôn `false`.
+Firmware điều khiển OC09 qua Tuya LAN 3.4. `tuya_cloud` là nhãn transport của mục registry `rangdong_plug_01`. Capability `tuya_control` và `cloud_access` luôn `false` trên cả hai cổng API.
 
 | DP id | Code | Kiểu | Quyền | Mô tả | Hàm xử lý |
 |---|---|---|---|---|---|
-| Không áp dụng | — | — | — | Chưa có DP trong repo | — |
+| `TUYA_OC09_DP` (mặc định 2) | `switch_2` | bool | Ghi, nhận trạng thái trong phản hồi | Nguồn Ổ cắm 2 OC09 | `TuyaLocal::setPower(bool)` |
 
-Nguồn: `platformio.ini`, `src/DeviceRegistry.cpp`, `src/ApiServer.cpp`.
+Nguồn: `src/TuyaLocal.cpp`, `include/tuya_config.example.h`, `src/DeviceRegistry.cpp`, `src/ApiServer.cpp`, `src/HttpsService.cpp`.
 
 ### 6.2 HTTP local (cổng 80)
 
@@ -292,7 +306,7 @@ Route chi tiết thiết bị nằm trong `onNotFound` (hậu tố sau `/api/v1/
 | 4 | Body đã nhận xong, không rỗng, parse được JSON object với `NestingLimit(3)` | `400 invalid_json` |
 | 5 | `device_id` (≤48), `action` (≤32) là string không rỗng, không NUL nhúng | `400 invalid_command` |
 | 6 | ID có trong registry | `404 device_not_found` |
-| 7 | Không phải `milife_plug_10a`; action thuộc từ vựng (quạt `power_on`/`swing`/`power_off`, Toshiba `fix`, Daikin/Tuya `power_on`/`power_off`) | `422 unsupported_action` |
+| 7 | Không phải `milife_plug_10a`; action thuộc từ vựng (quạt `power_on`/`swing`/`power_off`, Toshiba `fix`, Daikin và mục `rangdong_plug_01` nhận `power_on`/`power_off` ở bước kiểm tra này) | `422 unsupported_action` |
 | 8 | Là quạt/Toshiba và `IrDiagnostics::isReady()` | `503 device_not_ready` |
 | 9 | Send trả `ESP_OK` | `500 ir_send_failed` |
 
@@ -300,11 +314,13 @@ Thành công: `schema_version:1`, `device_id`, `action`, `transport:"ir"`, `stat
 
 Nguồn: `src/ApiServer.cpp`, `src/CommandApi.cpp`, `src/MiotLocal.cpp`, `src/DeviceRegistry.cpp`.
 
-### 6.3 Wi-Fi, Serial, miIO và kết nối khác
+### 6.3 Wi-Fi, Serial, miIO, Tuya LAN và kết nối khác
 
 Wi-Fi STA hostname `khairc-hub`, tắt auto-reconnect của Arduino và gọi reconnect mỗi 30 s khi offline (§5.1); server 80/8081/443 dừng/mở theo trạng thái mạng. Hub là client UDP miIO tới ổ cắm Milife trong LAN (cổng 54321, chỉ đọc nguồn, §5.11). Không có AP/BLE provisioning, mDNS, MQTT, WebSocket, cloud hay Home Assistant. Serial 115200: `s`/`S` TAIZ SWING, `f`/`F` Toshiba FIX, log chẩn đoán (`[WiFi EVENT]`, `[OTA SAFE]`, `[HTTPS]`...).
 
-Nguồn: `src/WifiService.cpp`, `src/MiotLocal.cpp`, `src/main.cpp`.
+Hub mở kết nối TCP/6668 tới OC09 theo từng lệnh HTTPS Web UI (§5.14).
+
+Nguồn: `src/WifiService.cpp`, `src/MiotLocal.cpp`, `src/TuyaLocal.cpp`, `src/main.cpp`.
 
 ### 6.4 OTA HTTP (cổng 8081)
 
@@ -337,7 +353,16 @@ Chỉ có khi build kèm `tls_credentials.h` (§5.9). Chứng chỉ tự ký the
 
 POST `/api/v1/commands` (HTTPS): `X-API-Key` (đúng 64 byte, XOR) → `401`; có `Transfer-Encoding` → `400 invalid_command`; Content-Type như HTTP → `415`; `content_len` ≤0 → `400 invalid_json`, >512 → `413`; đọc đủ body (lỗi đọc → đóng socket, không phản hồi); NUL nhúng/JSON sai → `400 invalid_json`; thiếu/không phải string → `400 invalid_command`; `device_id` khác `toshiba_ac` hoặc action ngoài `state`/`fix`/`swing_on`/`swing_off` → `422`. `state` phải có đúng 5 field (`device_id`, `action`, `power` bool, `temperature_c` int 17–30, `fan_speed` `auto`/`1`–`5`); action khác đúng 2 field; sai → `422`. Chờ reboot OTA hoặc IR chưa sẵn sàng/`TxGate` bận → `503 device_not_ready`; lỗi phát → `500 ir_send_failed`. Thành công giống HTTP với `device_id:"toshiba_ac"`, `state_verified:false`. Lỗi route không khớp dùng mặc định của `esp_http_server`.
 
-Nguồn: `src/HttpsService.cpp`, `src/WebUi.cpp`, `docs/HTTPS_STAGE1.md`.
+POST `/web/command` cho OC09 dùng session, CSRF và kiểm tra body theo §5.10. Body có đúng hai trường chuỗi `device_id:"rangdong_oc09_s2"` và `action:"power_on"` hoặc `action:"power_off"`. Thành công trả `200` với `schema_version:1`, `device_id`, `action`, `transport:"tuya_lan"`, `status:"sent"`, `state_verified`. Field `power` chỉ xuất hiện khi ổ cắm báo DP nguồn.
+
+| HTTP | Mã lỗi OC09 |
+|---|---|
+| 422 | `unsupported_action` khi ID, action hoặc cấu trúc lệnh sai |
+| 503 | `device_not_ready` khi chờ reboot OTA, `tuya_not_configured`, `device_busy` |
+| 504 | `tuya_timeout` khi hết hạn thương lượng, `tuya_no_ack` khi kết quả gửi chưa rõ |
+| 502 | `wifi_unavailable`, `tuya_network_error`, `tuya_auth_failed`, `tuya_device_rejected`, `tuya_protocol_error` |
+
+Nguồn: `src/HttpsService.cpp`, `src/WebUi.cpp`, `src/TuyaLocal.cpp`, `docs/HTTPS_STAGE1.md`.
 
 ## 7. Dữ liệu & cấu hình
 
@@ -352,6 +377,7 @@ Nguồn: `src/HttpsService.cpp`, `src/WebUi.cpp`, `docs/HTTPS_STAGE1.md`.
 | `include/secrets.h` | `WIFI_SSID`, `WIFI_PASSWORD`, `HUB_API_KEY` (đúng 64 ký tự, `static_assert`) | `WifiService`, `ApiAuth` | `include/secrets.example.h` | Không build được |
 | `include/ota_password.h` | `HUB_OTA_PASSWORD` (1–128 ký tự ASCII 33–126) | `OtaService` | `include/ota_password.example.h` | OTA bị khóa |
 | `include/miot_config.h` | `MILIFE_IP`, `MILIFE_DID`, `MILIFE_TOKEN` (32 hex, token miIO LAN) | `MiotLocal` | `include/miot_config.example.h` | Milife `not_configured` |
+| `include/tuya_config.h` | `TUYA_OC09_IP` (IPv4 hợp lệ và khác 0), `TUYA_OC09_DEVICE_ID` (khác rỗng), `TUYA_OC09_LOCAL_KEY` (16 byte), `TUYA_OC09_DP` (1–255, mặc định 2) | `TuyaLocal` | `include/tuya_config.example.h` | Lệnh OC09 trả `503 tuya_not_configured` |
 | `include/firebase_web_config.h` | `FIREBASE_WEB_API_KEY`, `FIREBASE_AUTH_DOMAIN`, `FIREBASE_PROJECT_ID`, `FIREBASE_APP_ID` (mỗi chuỗi 1–200 byte) | `WebUi` | `include/firebase_web_config.example.h` | Vault báo chưa cấu hình; đăng nhập thủ công dùng mật khẩu Web UI nếu đã cấu hình |
 | `include/web_password.h` | `HUB_WEB_PASSWORD` (1–64 byte UTF-8, loại byte điều khiển ASCII và DEL) | `WebUi` | `include/web_password.example.h` | Đăng nhập bằng mật khẩu trả `503`. Vault vẫn dùng `api_key` |
 | `include/tls_credentials.h` (+ `tls_certificate.pem`, `tls_private_key.pem`) | `HUB_TLS_CERT_PEM`, `HUB_TLS_KEY_PEM` | `HttpsService` | Sinh bằng `tools/create_https_credentials.py` | HTTPS tắt |
@@ -359,7 +385,7 @@ Nguồn: `src/HttpsService.cpp`, `src/WebUi.cpp`, `docs/HTTPS_STAGE1.md`.
 - Vault mã hóa nằm trên Firestore, browser đọc; không thêm NVS trên ESP32. Firebase Web app config được đưa vào HTML khi bật vault, file local được ignore; không ghi giá trị thật vào spec. Auth domain phải là hostname không scheme/path theo tài liệu; code chỉ kiểm tra độ dài.
 - `logs/hub-monitor-<timestamp>.csv` là đầu ra của monitor trên PC, không phải storage ESP32.
 
-Nguồn: `platformio.ini`, `.gitignore`, `src/OtaSafety.cpp`, `include/*.example.h`, `src/MiotLocal.cpp`, `src/HttpsService.cpp`, `src/OtaService.cpp`, `src/WebUi.cpp`, `docs/OTA.md`, `docs/WEB_VAULT.md`.
+Nguồn: `platformio.ini`, `.gitignore`, `src/OtaSafety.cpp`, `include/*.example.h`, `src/MiotLocal.cpp`, `src/TuyaLocal.cpp`, `src/HttpsService.cpp`, `src/OtaService.cpp`, `src/WebUi.cpp`, `docs/OTA.md`, `docs/WEB_VAULT.md`.
 
 ## 8. Quy ước & pattern của codebase
 
@@ -384,7 +410,7 @@ Nguồn: `include/*.h`, `src/*.cpp`, `AGENTS.md`, `CLAUDE.md`.
 - **Thêm route HTTP/80:** dùng `ApiAuth` cho route cần API key, giới hạn buffer và kiểm tra body, giữ mã lỗi, nhánh 405 trong `onNotFound`; đồng bộ registry/capabilities; giữ nghĩa `sent`/`state_verified`. Cập nhật `tools/monitor-hub.ps1` nếu health/system đổi.
 - **Đổi OTA/khởi động:** giữ `OtaSafety` health gate (thêm điều kiện mới vào `HealthGate::ready`), cập nhật `docs/OTA.md`, `test/ota_host` (stub `OtaSafety.h`) và chạy test host/trang.
 - **Đổi Web Vault:** sửa JS, sinh bundle bằng `tools/build-vault-web.py`, commit source/bundle/lockfile cùng nhau; test Node/KAT app và cập nhật `docs/WEB_VAULT.md`. Giữ đọc cloud một lần, không ghi Firestore, không lưu key/password, không tự retry login; thử tab thường và login thủ công.
-- **Thêm DP Tuya:** chưa có SDK/transport; cần thiết kế tích hợp trước, không suy ra DP từ nhãn `tuya_plug`.
+- **Thêm DP Tuya LAN:** xác nhận phiên bản giao thức và DP của thiết bị, rồi đối chiếu mẫu OC09 ở §5.14. Với nút điều khiển Web UI, giữ session/CSRF, gửi một lệnh mỗi lần bấm và chỉ đánh dấu xác nhận khi nhận được giá trị DP.
 - **Thêm chân/ngoại vi:** đối chiếu §1 và `AGENTS.md`, không đổi GPIO4; cập nhật pin map §1.
 - **Thêm NVS key:** dùng namespace riêng (đã có `ota_safe`), định nghĩa magic/version/checksum như `Journal`, ghi vào §7; không lưu secret.
 
@@ -395,7 +421,7 @@ Quy trình phân vai (mỗi vai một chat):
 - `$architect`/`$reviewer`/`$debugger` đọc spec theo mục: luôn §0, §8; thêm §9 khi thêm tính năng; module/§6 theo §12.
 - Không tự commit/push/upload. Xong việc = build sạch + test host liên quan pass + danh sách thử trên mạch. Build cần `include/secrets.h` cục bộ; thiếu thì dừng, không tự tạo giá trị thật. `docs/CODEX_WORKFLOW.md` mô tả quy trình này cho người dùng.
 
-Nguồn: `AGENTS.md`, `CLAUDE.md`, `.agents/skills/**`, `src/HttpsService.cpp`, `src/IrDiagnostics.cpp`, `src/MiotLocal.cpp`, `src/OtaSafety.cpp`, `docs/CODEX_WORKFLOW.md`.
+Nguồn: `AGENTS.md`, `CLAUDE.md`, `.agents/skills/**`, `src/HttpsService.cpp`, `src/IrDiagnostics.cpp`, `src/MiotLocal.cpp`, `src/TuyaLocal.cpp`, `src/WebUi.cpp`, `src/OtaSafety.cpp`, `docs/CODEX_WORKFLOW.md`.
 
 ## 10. Vấn đề đã biết, TODO, cần xác nhận
 
@@ -409,7 +435,8 @@ Nguồn: `AGENTS.md`, `CLAUDE.md`, `.agents/skills/**`, `src/HttpsService.cpp`, 
 - [ ] Health HTTPS không có `firmware`, `boot_id`, `ota_slot` như cổng 80. Phiên bản `0.4.0-ota1` cố định dù firmware đã thêm HTTPS/OtaSafety. — Nguồn: `src/HttpsService.cpp`, `src/ApiServer.cpp`, `src/main.cpp`.
 - [ ] Driver IR không tự phục hồi sau lỗi transmit/wait (`initialized=false`, các lệnh sau `503`/`500` tới khi reboot). HTTP/80 trả `500 ir_send_failed` khi `TxGate` bận còn HTTPS trả `503`. — Nguồn: `src/IrDiagnostics.cpp`, `src/CommandApi.cpp`, `src/HttpsService.cpp`.
 - [ ] Không có RX/readback IR; `state_verified:false`. Chưa có log thử phần cứng được track cho từng lệnh; mã Toshiba state/swing phản chiếu encoder Android ngoài repo, chưa đối chiếu. — Nguồn: `src/IrDiagnostics.cpp`, `include/ToshibaCodec.h`.
-- [ ] Daikin/Tuya chưa có driver; validation HTTP/80 vẫn nhận `power_on`/`power_off` rồi trả `503`. — Nguồn: `src/CommandApi.cpp`.
+- [ ] HTTP/80 nhận `power_on`/`power_off` cho Daikin và mục registry `rangdong_plug_01` ở bước kiểm tra action rồi trả `503 device_not_ready`. OC09 dùng ID `rangdong_oc09_s2` trong Web UI. Registry và capability hiện chưa phản ánh khả năng điều khiển OC09. — Nguồn: `src/CommandApi.cpp`, `src/DeviceRegistry.cpp`, `src/ApiServer.cpp`, `src/WebUi.cpp`.
+- [ ] Footer Web UI vẫn ghi “Chỉ Toshiba” dù có thẻ OC09. Cần thử trên Hub và OC09 thật để xác nhận bật/tắt, DP báo về, ACK thiếu DP và mất ACK. — Nguồn: `src/WebUiPage.cpp`, `src/TuyaLocal.cpp`, `include/tuya_config.example.h`.
 - [ ] `otaServer` (8081) không có `onNotFound`; nhánh 405 cho route OTA không còn — phản hồi sai method/route lạ dùng mặc định `WebServer`. — Nguồn: `src/ApiServer.cpp`, `src/OtaService.cpp`.
 - [ ] `backups/` (2 file `.bin`, 1 bản sao `HttpsService.cpp` cũ) đã được track dù `.gitignore` có `backups`. — Nguồn: `git ls-files`, `.gitignore`.
 - [ ] Chưa có test host cho handler C++ HTTPS/Web UI/MiotLocal/`ToshibaCodec`/`OtaSafetyPolicy`; rollback OTA, TLS và miIO cần thử trên board. — Nguồn: `test/ota_host/**`, `tools/test-ota.py`.
@@ -435,12 +462,13 @@ Nguồn: `src/*.cpp`, `include/*.h`, `docs/OTA.md`, `docs/HTTPS_STAGE1.md`, `.gi
 
 - 2026-11-17 INCR d66cbf6..9a48012 — vault Firebase/crypto/bundle và test/cấu hình; OTA boot/build/slot/VALID, build ID descriptor; Wi-Fi reconnect; Referrer-Policy login, fingerprint cert. Chỉ kiểm tra tài liệu, không build/flash hay test firmware.
 - 2026-11-19 FULL 9a48012..f065965 — kiểm kê 93 file, thêm §5.13 `ApiAuth`, cập nhật đăng nhập bằng mật khẩu Web UI, raw body HTTP/80, helper dùng chung HTTP/HTTPS, IR và OTA Safety.
+- 2026-11-26 INCR f065965..cfd0ae9 — thêm §5.14 `TuyaLocal`, cập nhật Web UI, cấu hình và API điều khiển OC09 qua Tuya LAN 3.4.
 
 Nguồn: cây Git và lịch sử commit tại mốc đồng bộ trong front matter.
 
 ## 12. Bản đồ file → mục
 
-Mỗi file trong 93 file tracked tại mốc đồng bộ thuộc một dòng dưới đây.
+Mỗi file trong 96 file tracked tại mốc đồng bộ thuộc một dòng dưới đây.
 
 | Glob | Mục | Ghi chú |
 |---|---|---|
@@ -455,8 +483,9 @@ Mỗi file trong 93 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `include/OtaPage.h`, `src/OtaPage.cpp` | §5.7, §6.4 | Trang OTA nhúng |
 | `include/OtaSafety.h`, `include/OtaSafetyPolicy.h`, `src/OtaSafety.cpp` | §0, §4, §5.8, §7–§10 | Rollback, nhật ký NVS |
 | `include/HttpsService.h`, `src/HttpsService.cpp` | §4, §5.9, §6.5, §7, §9, §10 | Server TLS 443 |
-| `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPage.cpp` | §5.10, §5.12, §6.5, §7, §8 | Web UI Toshiba và vault trên HTTPS |
+| `include/WebUi.h`, `src/WebUi.cpp`, `include/WebUiPage.h`, `src/WebUiPage.cpp` | §0, §3, §5.4, §5.10, §5.12, §5.14, §6.5, §7–§10 | Web UI Toshiba, OC09 và vault trên HTTPS |
 | `include/MiotLocal.h`, `src/MiotLocal.cpp` | §4, §5.11, §6.2, §6.3, §7, §10 | Đọc Milife miIO LAN |
+| `include/TuyaLocal.h`, `src/TuyaLocal.cpp`, `include/tuya_config.example.h` | §0, §3, §4, §5.14, §6.1, §6.3, §6.5, §7, §9, §10 | Điều khiển Ổ cắm 2 OC09 qua Tuya LAN |
 | `include/VaultWebBundle.h`, `src/VaultWebBundle.cpp` | §2, §3, §5.12 | Bundle gzip sinh, PROGMEM |
 | `web/vault/**` | §2, §3, §5.12, §7–§10 | Source JS, dependency/lockfile và test Node |
 | `docs/WEB_VAULT.md` | §2, §5.12, §6.5, §7–§10 | Cấu hình Firebase, định dạng vault, KAT và thử board |
@@ -473,6 +502,6 @@ Mỗi file trong 93 file tracked tại mốc đồng bộ thuộc một dòng d�
 | `.vscode/**` | §3 | Chỉ kiểm kê tên |
 | `docs/PROJECT_SPEC.md` | §0–§12 | Spec tự quản lý |
 
-Các file cục bộ `include/secrets.h`, `include/ota_password.h`, `include/web_password.h`, `include/miot_config.h`, `include/firebase_web_config.h`, `include/tls_credentials.h`, `include/tls_*.pem`, `.pio/build.log`, `logs/`, `docs/PLAN.md` và `default_16MB.csv` không phải nguồn được track.
+Các file cục bộ `include/secrets.h`, `include/ota_password.h`, `include/web_password.h`, `include/miot_config.h`, `include/tuya_config.h`, `include/firebase_web_config.h`, `include/tls_credentials.h`, `include/tls_*.pem`, `.pio/build.log`, `logs/`, `docs/PLAN.md` và `default_16MB.csv` không phải nguồn được track.
 
 Nguồn: `git ls-files` tại mốc đồng bộ; `.gitignore`.
