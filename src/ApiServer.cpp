@@ -1,6 +1,7 @@
 #include "CommandApi.h"
 #include "DeviceRegistry.h"
 #include "IrDiagnostics.h"
+#include "LandingPage.h"
 #include "OtaService.h"
 #include "OtaSafety.h"
 #include "MiotLocal.h"
@@ -90,15 +91,19 @@ void begin() {
     server.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(headerKeys[0]));
     otaServer.collectHeaders(headerKeys, sizeof(headerKeys) / sizeof(headerKeys[0]));
 
-    // The OTA UI needs health on its own same-origin port to verify reboot.
     server.on("/", HTTP_GET, []() {
         server.sendHeader("Cache-Control", "no-store");
-        server.send(200, "application/json",
-                    "{\"service\":\"KhaiRC-ESP32-Hub\",\"status\":\"ok\"}");
+        server.sendHeader("X-Content-Type-Options", "nosniff");
+        server.sendHeader("X-Frame-Options", "DENY");
+        server.sendHeader("Content-Security-Policy",
+            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "img-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'");
+        server.send_P(200, "text/html; charset=utf-8", LandingPage::html());
     });
     server.on("/api/v1/health", HTTP_GET, []() {
         sendHealth(server);
     });
+    // The OTA UI needs health on its own same-origin port to verify reboot.
     otaServer.on("/api/v1/health", HTTP_GET, []() {
         sendHealth(otaServer);
     });

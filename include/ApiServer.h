@@ -5,7 +5,7 @@
 
 namespace ApiServer {
     // Shown in the Serial banner and HTTP/80 + OTA/8081 health.
-    constexpr char FIRMWARE_VERSION[] = "0.4.0-ota1";
+    constexpr char FIRMWARE_VERSION[] = "1.0.0";
 
     void begin();
     void loop();
