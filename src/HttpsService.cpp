@@ -256,8 +256,8 @@ namespace {
         httpd_ssl_config_t config = HTTPD_SSL_CONFIG_DEFAULT();
         config.port_secure = 443;
         config.httpd.stack_size = 8192;
-        // Exactly 6 API routes below + 11 WebUi::registerRoutes() routes.
-        config.httpd.max_uri_handlers = 17;
+        // Exactly 6 API routes below + 6 WebUi::registerRoutes() routes.
+        config.httpd.max_uri_handlers = 12;
         config.httpd.max_req_hdr_len = 1536;
         config.httpd.max_open_sockets = 2;
         config.httpd.lru_purge_enable = true;
@@ -312,7 +312,6 @@ namespace HttpsService {
         if (!online && secureServer != nullptr) {
             httpd_ssl_stop(secureServer);
             secureServer = nullptr;
-            WebUi::resetSessions();
             attempted = false;
             Serial.println("[HTTPS] Stopped after Wi-Fi disconnect");
         }

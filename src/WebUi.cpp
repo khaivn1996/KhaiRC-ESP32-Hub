@@ -1,88 +1,24 @@
 #include "WebUi.h"
 #include "WebUiPage.h"
-#include "VaultWebBundle.h"
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
-#include <esp_random.h>
 #include <cstring>
-#include <mbedtls/sha256.h>
 
 #include "IrDiagnostics.h"
 #include "OtaService.h"
-#include "ApiAuth.h"
 #include "ToshibaCodec.h"
 #include "TuyaLocal.h"
 
-#if __has_include("web_password.h")
-#include "web_password.h"
-#endif
-#ifndef HUB_WEB_PASSWORD
-#define HUB_WEB_PASSWORD ""
-#endif
-
-#if __has_include("firebase_web_config.h")
-#include "firebase_web_config.h"
-#define KHAIRC_VAULT_CONFIGURED 1
-static_assert(sizeof(FIREBASE_WEB_API_KEY) > 1 && sizeof(FIREBASE_WEB_API_KEY) <= 201, "Invalid FIREBASE_WEB_API_KEY length");
-static_assert(sizeof(FIREBASE_AUTH_DOMAIN) > 1 && sizeof(FIREBASE_AUTH_DOMAIN) <= 201, "Invalid FIREBASE_AUTH_DOMAIN length");
-static_assert(sizeof(FIREBASE_PROJECT_ID) > 1 && sizeof(FIREBASE_PROJECT_ID) <= 201, "Invalid FIREBASE_PROJECT_ID length");
-static_assert(sizeof(FIREBASE_APP_ID) > 1 && sizeof(FIREBASE_APP_ID) <= 201, "Invalid FIREBASE_APP_ID length");
-#else
-#define KHAIRC_VAULT_CONFIGURED 0
-#endif
-
 namespace {
-constexpr bool kVaultConfigured = KHAIRC_VAULT_CONFIGURED;
 constexpr size_t MAX_BODY_SIZE = 512;
-constexpr unsigned long SESSION_MS = 15UL * 60UL * 1000UL;
-constexpr size_t SESSION_SLOTS = 2;
-constexpr size_t TOKEN_HEX_LEN = 32;
-constexpr size_t MAX_WEB_PASSWORD_BYTES = 64;
-constexpr char kPasswordField[] = "password=";
-constexpr char kWebPassword[] = HUB_WEB_PASSWORD;
-constexpr size_t kWebPasswordLen = sizeof(kWebPassword) - 1;
-constexpr bool kPasswordConfigured = kWebPasswordLen != 0;
-static_assert(kWebPasswordLen <= MAX_WEB_PASSWORD_BYTES, "HUB_WEB_PASSWORD must be at most 64 bytes");
-
-constexpr bool isWebPasswordByteAllowed(int byte) {
-    return byte >= 32 && byte != 127;
-}
-
-constexpr bool isWebPasswordConfigValid() {
-    for (size_t i = 0; i < kWebPasswordLen; ++i) {
-        if (!isWebPasswordByteAllowed(static_cast<unsigned char>(kWebPassword[i]))) return false;
-    }
-    return true;
-}
-static_assert(isWebPasswordConfigValid(), "HUB_WEB_PASSWORD must not contain ASCII control bytes");
-
-struct Session {
-    char id[TOKEN_HEX_LEN + 1] = {};
-    char csrf[TOKEN_HEX_LEN + 1] = {};
-    uint32_t issued = 0;
-    bool active = false;
-};
-Session sessions[SESSION_SLOTS];
-size_t nextSession = 0;
-uint32_t loginBlockedUntil = 0;
-uint8_t failedLogins = 0;
 
 void harden(httpd_req_t* r) {
     httpd_resp_set_hdr(r, "Cache-Control", "no-store, max-age=0");
     httpd_resp_set_hdr(r, "Pragma", "no-cache");
     httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");
     httpd_resp_set_hdr(r, "X-Frame-Options", "DENY");
-    // Native login forms need their same-origin Origin (no-referrer makes it null).
     httpd_resp_set_hdr(r, "Referrer-Policy", "same-origin");
-}
-
-void hardenVault(httpd_req_t* r) {
-    httpd_resp_set_hdr(r, "Cache-Control", "no-store, max-age=0");
-    httpd_resp_set_hdr(r, "Pragma", "no-cache");
-    httpd_resp_set_hdr(r, "X-Content-Type-Options", "nosniff");
-    httpd_resp_set_hdr(r, "X-Frame-Options", "DENY");
-    httpd_resp_set_hdr(r, "Referrer-Policy", "strict-origin-when-cross-origin");
 }
 
 esp_err_t respond(httpd_req_t* r, const char* status, const char* type,
@@ -99,57 +35,14 @@ esp_err_t error(httpd_req_t* r, const char* status, const char* code) {
     return respond(r, status, "application/json; charset=utf-8", payload);
 }
 
-using ApiAuth::constantTimeEquals;
-
-void randomToken(char out[TOKEN_HEX_LEN + 1]) {
-    uint8_t bytes[TOKEN_HEX_LEN / 2];
-    esp_fill_random(bytes, sizeof(bytes));
-    constexpr char hex[] = "0123456789abcdef";
-    for (size_t i = 0; i < sizeof(bytes); ++i) {
-        out[i * 2] = hex[bytes[i] >> 4];
-        out[i * 2 + 1] = hex[bytes[i] & 15];
-    }
-    out[TOKEN_HEX_LEN] = '\0';
-}
-
-bool expired(uint32_t issued) {
-    return static_cast<uint32_t>(millis() - issued) >= SESSION_MS;
-}
-
 bool getHeader(httpd_req_t* r, const char* name, char* out, size_t capacity) {
     const size_t len = httpd_req_get_hdr_value_len(r, name);
     return len > 0 && len < capacity &&
            httpd_req_get_hdr_value_str(r, name, out, capacity) == ESP_OK;
 }
 
-// Ignore unrelated cookies. Match the exact cookie name and 32-byte hex value.
-Session* currentSession(httpd_req_t* r) {
-    char cookie[512] = {};
-    if (!getHeader(r, "Cookie", cookie, sizeof(cookie))) return nullptr;
-    const char* cur = cookie;
-    while (*cur) {
-        while (*cur == ' ' || *cur == ';') ++cur;
-        const char* end = strchr(cur, ';');
-        if (!end) end = cur + strlen(cur);
-        constexpr char name[] = "khairc_sid=";
-        const size_t pairLen = static_cast<size_t>(end - cur);
-        if (pairLen == sizeof(name) - 1 + TOKEN_HEX_LEN &&
-            strncmp(cur, name, sizeof(name) - 1) == 0) {
-            const char* id = cur + sizeof(name) - 1;
-            for (Session& s : sessions) {
-                if (s.active && expired(s.issued)) s.active = false;
-                if (s.active && constantTimeEquals(s.id, id, TOKEN_HEX_LEN)) return &s;
-            }
-        }
-        cur = *end ? end + 1 : end;
-    }
-    return nullptr;
-}
-
 // Browser Origin must match the Host that was used to load the HTTPS page.
-// Some clients omit Origin; the independent secret CSRF header remains mandatory.
-bool sameOriginWhenPresent(httpd_req_t* r) {
-    if (httpd_req_get_hdr_value_len(r, "Origin") == 0) return true;
+bool sameOrigin(httpd_req_t* r) {
     char origin[270] = {};
     char host[255] = {};
     if (!getHeader(r, "Origin", origin, sizeof(origin)) ||
@@ -172,145 +65,12 @@ bool readBody(httpd_req_t* r, char (&body)[MAX_BODY_SIZE + 1]) {
     return memchr(body, '\0', static_cast<size_t>(offset)) == nullptr;
 }
 
-int nibble(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    return -1;
-}
-
-// Native HTML form. The API key is not read by JavaScript or saved in a browser store.
-bool parseFormKey(const char* form, char out[65]) {
-    constexpr char prefix[] = "api_key=";
-    if (strncmp(form, prefix, sizeof(prefix) - 1) != 0) return false;
-    const char* read = form + sizeof(prefix) - 1;
-    size_t length = 0;
-    for (; *read; ++read) {
-        if (length >= 64 || *read == '&') return false;
-        int ch = static_cast<unsigned char>(*read);
-        if (*read == '+') ch = ' ';
-        else if (*read == '%') {
-            if (read[1] == '\0' || read[2] == '\0') return false;
-            const int a = nibble(read[1]), b = nibble(read[2]);
-            if (a < 0 || b < 0) return false;
-            ch = (a << 4) | b;
-            read += 2;
-        }
-        if (ch < 32 || ch > 126) return false;
-        out[length++] = static_cast<char>(ch);
-    }
-    out[length] = '\0';
-    return length == 64;
-}
-
-// The caller has already matched the password field prefix.
-bool parseFormPassword(const char* form, char out[MAX_WEB_PASSWORD_BYTES + 1], size_t& length) {
-    const char* read = form + sizeof(kPasswordField) - 1;
-    length = 0;
-    for (; *read; ++read) {
-        if (length >= MAX_WEB_PASSWORD_BYTES || *read == '&') return false;
-        int ch = static_cast<unsigned char>(*read);
-        if (*read == '+') ch = ' ';
-        else if (*read == '%') {
-            if (read[1] == '\0' || read[2] == '\0') return false;
-            const int a = nibble(read[1]), b = nibble(read[2]);
-            if (a < 0 || b < 0) return false;
-            ch = (a << 4) | b;
-            read += 2;
-        }
-        if (!isWebPasswordByteAllowed(ch)) return false;
-        out[length++] = static_cast<char>(ch);
-    }
-    return length != 0;
-}
-
-bool passwordMatches(const char* provided, size_t length) {
-    unsigned char actual[32] = {};
-    unsigned char expected[32] = {};
-    const bool match =
-        mbedtls_sha256(reinterpret_cast<const unsigned char*>(provided), length, actual, 0) == 0 &&
-        mbedtls_sha256(reinterpret_cast<const unsigned char*>(kWebPassword), kWebPasswordLen, expected, 0) == 0 &&
-        constantTimeEquals(reinterpret_cast<const char*>(actual), reinterpret_cast<const char*>(expected), sizeof(actual));
-    memset(actual, 0, sizeof(actual));
-    memset(expected, 0, sizeof(expected));
-    return match;
-}
-
 esp_err_t view(httpd_req_t* r) {
     httpd_resp_set_hdr(r, "Content-Security-Policy",
         "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
         "connect-src 'self'; img-src 'self' data:; manifest-src 'self'; "
-        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+        "form-action 'none'; base-uri 'none'; frame-ancestors 'none'");
     return respond(r, "200 OK", "text/html; charset=utf-8", WebUiPage::html());
-}
-
-#if KHAIRC_VAULT_CONFIGURED
-esp_err_t vaultJsonString(httpd_req_t* r, const char* value) {
-    if (httpd_resp_send_chunk(r, "\"", 1) != ESP_OK) return ESP_FAIL;
-    char buffer[64];
-    size_t used = 0;
-    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(value); *p; ++p) {
-        if (used + 6 > sizeof(buffer)) {
-            if (httpd_resp_send_chunk(r, buffer, used) != ESP_OK) return ESP_FAIL;
-            used = 0;
-        }
-        if (*p == '"' || *p == '\\' || *p == '<' || *p < 0x20) {
-            constexpr char hex[] = "0123456789ABCDEF";
-            buffer[used++] = '\\'; buffer[used++] = 'u';
-            buffer[used++] = '0'; buffer[used++] = '0';
-            buffer[used++] = hex[*p >> 4]; buffer[used++] = hex[*p & 15];
-        } else buffer[used++] = static_cast<char>(*p);
-    }
-    if (used && httpd_resp_send_chunk(r, buffer, used) != ESP_OK) return ESP_FAIL;
-    return httpd_resp_send_chunk(r, "\"", 1);
-}
-#endif
-
-esp_err_t vaultView(httpd_req_t* r) {
-    if (!kVaultConfigured) {
-        httpd_resp_set_hdr(r, "Content-Security-Policy",
-            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
-            "connect-src 'self'; img-src 'self' data:; manifest-src 'self'; "
-            "form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
-        return respond(r, "200 OK", "text/html; charset=utf-8", WebUiPage::vaultMissing());
-    }
-#if KHAIRC_VAULT_CONFIGURED
-    char csp[640];
-    const int count = snprintf(csp, sizeof(csp),
-        "default-src 'none'; script-src 'self' https://apis.google.com; frame-src https://%s; "
-        "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com "
-        "https://firestore.googleapis.com; style-src 'unsafe-inline'; img-src 'self' data:; "
-        "form-action 'self'; base-uri 'none'; frame-ancestors 'none'", FIREBASE_AUTH_DOMAIN);
-    if (count < 0 || static_cast<size_t>(count) >= sizeof(csp)) return ESP_FAIL;
-    httpd_resp_set_status(r, "200 OK");
-    httpd_resp_set_type(r, "text/html; charset=utf-8");
-    hardenVault(r);
-    httpd_resp_set_hdr(r, "Content-Security-Policy", csp);
-    if (httpd_resp_send_chunk(r, WebUiPage::vaultHead(), HTTPD_RESP_USE_STRLEN) != ESP_OK ||
-        httpd_resp_send_chunk(r, "{\"apiKey\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
-        vaultJsonString(r, FIREBASE_WEB_API_KEY) != ESP_OK ||
-        httpd_resp_send_chunk(r, ",\"authDomain\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
-        vaultJsonString(r, FIREBASE_AUTH_DOMAIN) != ESP_OK ||
-        httpd_resp_send_chunk(r, ",\"projectId\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
-        vaultJsonString(r, FIREBASE_PROJECT_ID) != ESP_OK ||
-        httpd_resp_send_chunk(r, ",\"appId\":", HTTPD_RESP_USE_STRLEN) != ESP_OK ||
-        vaultJsonString(r, FIREBASE_APP_ID) != ESP_OK ||
-        httpd_resp_send_chunk(r, "}", 1) != ESP_OK ||
-        httpd_resp_send_chunk(r, WebUiPage::vaultTail(), HTTPD_RESP_USE_STRLEN) != ESP_OK) return ESP_FAIL;
-    return httpd_resp_send_chunk(r, nullptr, 0);
-#else
-    return ESP_FAIL;
-#endif
-}
-
-esp_err_t vaultScript(httpd_req_t* r) {
-    if (!kVaultConfigured) return error(r, "404 Not Found", "not_configured");
-    httpd_resp_set_status(r, "200 OK");
-    httpd_resp_set_type(r, "text/javascript; charset=utf-8");
-    hardenVault(r);
-    httpd_resp_set_hdr(r, "Content-Encoding", "gzip");
-    return httpd_resp_send(r, reinterpret_cast<const char*>(VaultWebBundle::data()),
-                           static_cast<int>(VaultWebBundle::size()));
 }
 
 esp_err_t javascript(httpd_req_t* r) {
@@ -328,88 +88,6 @@ esp_err_t png(httpd_req_t* r) {
     harden(r);
     return httpd_resp_send(r, reinterpret_cast<const char*>(WebUiPage::iconPng()),
                            static_cast<int>(WebUiPage::iconPngLen()));
-}
-
-esp_err_t login(httpd_req_t* r) {
-    if (!sameOriginWhenPresent(r)) return error(r, "403 Forbidden", "origin_blocked");
-    if (loginBlockedUntil != 0 &&
-        static_cast<int32_t>(millis() - loginBlockedUntil) < 0) {
-        return error(r, "429 Too Many Requests", "try_later");
-    }
-    char type[64] = {};
-    if (!getHeader(r, "Content-Type", type, sizeof(type)) ||
-        strcmp(type, "application/x-www-form-urlencoded") != 0) {
-        return error(r, "415 Unsupported Media Type", "unsupported_media_type");
-    }
-    char body[MAX_BODY_SIZE + 1] = {};
-    char provided[MAX_WEB_PASSWORD_BYTES + 1] = {};
-    const bool bodyValid = readBody(r, body);
-    const bool passwordLogin =
-        bodyValid && strncmp(body, kPasswordField, sizeof(kPasswordField) - 1) == 0;
-    const bool passwordDisabled = passwordLogin && !kPasswordConfigured;
-    bool match = false;
-    if (passwordLogin) {
-        size_t length = 0;
-        match = !passwordDisabled && parseFormPassword(body, provided, length) &&
-                passwordMatches(provided, length);
-    } else {
-        match = bodyValid && parseFormKey(body, provided) &&
-                ApiAuth::hubKeyMatches(provided, strlen(provided));
-    }
-    memset(body, 0, sizeof(body));
-    memset(provided, 0, sizeof(provided));
-    if (passwordDisabled) {
-        return respond(r, "503 Service Unavailable", "text/html; charset=utf-8",
-            "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>Đăng nhập Web UI</title><p>Chưa cấu hình mật khẩu Web UI</p>"
-            "<p><a href='/ui'>Quay lại đăng nhập</a></p>");
-    }
-    if (!match) {
-        if (++failedLogins >= 5) {
-            failedLogins = 0;
-            loginBlockedUntil = millis() + 30000;
-        }
-        return respond(r, "401 Unauthorized", "text/html; charset=utf-8",
-            "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
-            "<title>Đăng nhập thất bại</title><p>Mật khẩu không đúng.</p>"
-            "<p><a href='/ui'>Quay lại đăng nhập</a></p>");
-    }
-    failedLogins = 0;
-    loginBlockedUntil = 0;
-    Session& session = sessions[nextSession++ % SESSION_SLOTS];
-    randomToken(session.id);
-    randomToken(session.csrf);
-    session.issued = millis();
-    session.active = true;
-    char cookie[128] = {};
-    snprintf(cookie, sizeof(cookie), "khairc_sid=%s; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=900", session.id);
-    httpd_resp_set_hdr(r, "Set-Cookie", cookie);
-    httpd_resp_set_hdr(r, "Location", "/ui");
-    return respond(r, "303 See Other", "text/plain", "");
-}
-
-esp_err_t logout(httpd_req_t* r) {
-    if (!sameOriginWhenPresent(r)) return error(r, "403 Forbidden", "origin_blocked");
-    Session* session = currentSession(r);
-    if (session) {
-        char csrf[64] = {};
-        if (!getHeader(r, "X-CSRF-Token", csrf, sizeof(csrf)) ||
-            strlen(csrf) != TOKEN_HEX_LEN ||
-            !constantTimeEquals(csrf, session->csrf, TOKEN_HEX_LEN)) {
-            return error(r, "403 Forbidden", "csrf_blocked");
-        }
-        session->active = false;
-    }
-    httpd_resp_set_hdr(r, "Set-Cookie", "khairc_sid=; Secure; HttpOnly; SameSite=Strict; Path=/; Max-Age=0");
-    return respond(r, "200 OK", "application/json", "{\"ok\":true}");
-}
-
-esp_err_t status(httpd_req_t* r) {
-    Session* s = currentSession(r);
-    if (!s) return error(r, "401 Unauthorized", "login_required");
-    char response[96];
-    snprintf(response, sizeof(response), "{\"authenticated\":true,\"csrf\":\"%s\"}", s->csrf);
-    return respond(r, "200 OK", "application/json", response);
 }
 
 // Rang Dong OC09 "O cam 4" (Tuya LAN 3.4). Explicit set ON/OFF, one attempt, no retry.
@@ -445,15 +123,7 @@ esp_err_t plugCommand(httpd_req_t* r, JsonObject obj) {
 }
 
 esp_err_t command(httpd_req_t* r) {
-    Session* s = currentSession(r);
-    if (!s) return error(r, "401 Unauthorized", "login_required");
-    if (!sameOriginWhenPresent(r)) return error(r, "403 Forbidden", "origin_blocked");
-    char csrf[64] = {};
-    if (!getHeader(r, "X-CSRF-Token", csrf, sizeof(csrf)) ||
-        strlen(csrf) != TOKEN_HEX_LEN ||
-        !constantTimeEquals(csrf, s->csrf, TOKEN_HEX_LEN)) {
-        return error(r, "403 Forbidden", "csrf_blocked");
-    }
+    if (!sameOrigin(r)) return error(r, "403 Forbidden", "origin_blocked");
     char type[64] = {};
     if (!getHeader(r, "Content-Type", type, sizeof(type)) ||
         strcmp(type, "application/json") != 0) {
@@ -523,22 +193,10 @@ bool add(httpd_handle_t srv, const char* uri, httpd_method_t method,
 namespace WebUi {
 bool registerRoutes(httpd_handle_t server) {
     return add(server, "/ui", HTTP_GET, view) &&
-           add(server, "/ui/vault", HTTP_GET, vaultView) &&
-           add(server, "/web/vault.js", HTTP_GET, vaultScript) &&
            add(server, "/web/app.js", HTTP_GET, javascript) &&
            add(server, "/web/manifest.webmanifest", HTTP_GET, manifest) &&
            add(server, "/web/icon.svg", HTTP_GET, icon) &&
            add(server, "/web/icon.png", HTTP_GET, png) &&
-           add(server, "/web/login", HTTP_POST, login) &&
-           add(server, "/web/logout", HTTP_POST, logout) &&
-           add(server, "/web/session", HTTP_GET, status) &&
            add(server, "/web/command", HTTP_POST, command);
-}
-void resetSessions() {
-    for (Session& s : sessions) {
-        s.active = false;
-        memset(s.id, 0, sizeof(s.id));
-        memset(s.csrf, 0, sizeof(s.csrf));
-    }
 }
 }

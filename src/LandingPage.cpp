@@ -38,7 +38,7 @@ h1{margin:0;font-size:clamp(28px,4.4vw,49px);font-weight:750;line-height:1.2;let
 .version strong{font-size:14px;color:#342b80;font-weight:700}
 .uptime{border-left:1px solid #c8c3e2;padding-left:12px;font-size:12px}
 .card{min-width:0;padding:23px;border:1px solid var(--line);border-radius:23px;background:linear-gradient(135deg,#ffffff75,#ffffff36);box-shadow:inset 0 1px 0 #fff9}
-.shortcuts{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.shortcuts{display:grid;grid-template-columns:repeat(2,1fr);gap:20px}
 .shortcut{display:flex;align-items:flex-start;gap:14px;color:var(--ink);text-decoration:none;font-weight:400;transition:transform .15s,box-shadow .15s}
 a.shortcut:hover{transform:translateY(-1px);box-shadow:0 10px 25px #5945d51f,inset 0 1px 0 #fff9}
 .shortcut .icon{display:flex;align-items:center;justify-content:center;width:42px;height:42px;flex-shrink:0;border-radius:13px;background:linear-gradient(110deg,#6655f4,#4838d6);color:#fff;box-shadow:0 7px 20px #5945d52b}
@@ -95,12 +95,8 @@ a:focus-visible{outline:3px solid #8374e8;outline-offset:4px}
 <span class="icon"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M8 9h8M8 13h5"/></svg></span>
 <span><strong>Bảng điều khiển</strong><small id="ui-url">HTTPS · /ui</small></span>
 </a>
-<a class="card shortcut" id="vault-link">
-<span class="icon"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></span>
-<span><strong>Web Vault</strong><small id="vault-url">HTTPS · /ui/vault</small></span>
-</a>
 </nav>
-<p class="note">Bảng điều khiển và Web Vault chỉ có khi firmware được build kèm chứng chỉ TLS. Trình duyệt sẽ cảnh báo chứng chỉ tự ký.</p>
+<p class="note">Bảng điều khiển chỉ có khi firmware được build kèm chứng chỉ TLS. Trình duyệt sẽ cảnh báo chứng chỉ tự ký.</p>
 
 <h2 class="section-title"><span class="step" aria-hidden="true">API</span>Danh mục endpoint</h2>
 <div class="groups">
@@ -132,10 +128,8 @@ a:focus-visible{outline:3px solid #8374e8;outline-offset:4px}
 <div class="ep"><span class="m get">GET</span><code>/api/v1/system · /capabilities · /devices</code><span class="a pub">Công khai</span><span class="d">Cùng nội dung với cổng 80</span></div>
 <div class="ep"><span class="m get">GET</span><code>/api/v1/devices/milife_plug_10a/state</code><span class="a key">X-API-Key</span><span class="d">Như cổng 80</span></div>
 <div class="ep"><span class="m post">POST</span><code>/api/v1/commands</code><span class="a key">X-API-Key</span><span class="d">Toshiba <code>state</code> · <code>fix</code> · <code>swing_on</code> · <code>swing_off</code></span></div>
-<div class="ep"><span class="m get">GET</span><code>/ui · /ui/vault</code><span class="a pub">Công khai</span><span class="d">Bảng điều khiển và Web Vault</span></div>
-<div class="ep"><span class="m post">POST</span><code>/web/login</code><span class="a key">Mật khẩu / API key</span><span class="d">Đăng nhập (mật khẩu Web UI hoặc API key từ Vault), tạo session cookie</span></div>
-<div class="ep"><span class="m get">GET</span><code>/web/session</code><span class="a ses">Session</span><span class="d">Cấp token CSRF</span></div>
-<div class="ep"><span class="m post">POST</span><code>/web/command · /web/logout</code><span class="a ses">Session + CSRF</span><span class="d">Lệnh Toshiba, ổ cắm Rạng Đông OC09; đăng xuất</span></div>
+<div class="ep"><span class="m get">GET</span><code>/ui</code><span class="a pub">Công khai</span><span class="d">Bảng điều khiển</span></div>
+<div class="ep"><span class="m post">POST</span><code>/web/command</code><span class="a ses">Cùng origin</span><span class="d">Lệnh Toshiba, ổ cắm Rạng Đông OC09 (socket4)</span></div>
 </section>
 
 </div>
@@ -153,7 +147,6 @@ if(host.indexOf(':')>=0)host='['+host+']';
 function link(id,urlId,url){var a=$(id);a.href=url;$(urlId).textContent=url;}
 link('ota-link','ota-url','http://'+host+':8081/update');
 link('ui-link','ui-url','https://'+host+'/ui');
-link('vault-link','vault-url','https://'+host+'/ui/vault');
 
 function uptime(sec){
   var s=Math.floor(sec),d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);

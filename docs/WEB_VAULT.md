@@ -1,5 +1,7 @@
 # Mở khóa Web UI bằng bản sao cloud
 
+Tài liệu này mô tả cơ chế đăng nhập cũ. Firmware hiện mở trực tiếp `/ui` và đã gỡ route `/ui/vault`.
+
 ## 1. Phạm vi
 
 Trang HTTPS `/ui/vault` đăng nhập Google bằng Firebase Auth popup, đọc duy nhất `users/{uid}/vault/main` trong Firestore `(default)`, giải mã trên trình duyệt rồi dùng `hub.apiKey` để POST `/web/login`. Sau khi Hub tạo cookie phiên, trang chuyển về `/ui`. Firmware không kết nối Firebase; các kết nối cloud do trình duyệt thực hiện.

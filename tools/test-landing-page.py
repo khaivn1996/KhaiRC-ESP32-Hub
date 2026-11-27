@@ -32,7 +32,6 @@ CHECK = r"""
     heap: $('heap').hidden ? null : $('heap').textContent,
     ota: $('ota-link').getAttribute('href'),
     ui: $('ui-link').getAttribute('href'),
-    vault: $('vault-link').getAttribute('href'),
     endpoints: document.querySelectorAll('.ep').length,
     injected: document.querySelectorAll('main img, #version *').length,
     pwned: window.pwned === 1,
@@ -62,10 +61,9 @@ def verify(case, r):
     problems = []
     if r["overflow"]:
         problems.append("horizontal scroll")
-    if r["ota"] != "http://192.168.1.50:8081/update" or r["ui"] != "https://192.168.1.50/ui" \
-            or r["vault"] != "https://192.168.1.50/ui/vault":
-        problems.append("shortcut links " + repr((r["ota"], r["ui"], r["vault"])))
-    if r["endpoints"] < 20:
+    if r["ota"] != "http://192.168.1.50:8081/update" or r["ui"] != "https://192.168.1.50/ui":
+        problems.append("shortcut links " + repr((r["ota"], r["ui"])))
+    if r["endpoints"] != 18:
         problems.append("endpoint count " + str(r["endpoints"]))
     if case == "online":
         if r["state"] != "online" or r["connection"] != "Trực tuyến" or r["version"] != "0.4.0-ota1" \
