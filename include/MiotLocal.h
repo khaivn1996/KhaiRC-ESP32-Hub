@@ -17,6 +17,8 @@ enum class Status : uint8_t {
     InvalidResponse,
     AuthFailed,
     DeviceRejected,
+    WriteTimeout,
+    WriteUnconfirmed,
 };
 
 struct PowerResult {
@@ -26,6 +28,7 @@ struct PowerResult {
 
 bool configured();
 PowerResult readPower();
+Status setPower(bool on);
 // Shared by HTTP/80 and HTTPS/443 so both report identical errors and JSON.
 const char* errorCode(Status status);
 bool isTimeout(Status status);

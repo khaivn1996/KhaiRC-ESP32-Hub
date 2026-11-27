@@ -3,7 +3,7 @@
 #include "OtaSafety.h"
 #include <Arduino.h>
 
-// Stage 2C: HTTPS read APIs plus Toshiba-only state/FIX/SWING. No MiLife writes or OTA.
+// HTTPS read APIs, Toshiba state/FIX/SWING and MiLife power commands.
 // Keep the proven HTTP/80 and LAN OTA/8081 available for recovery.
 #if __has_include(<esp_https_server.h>) && __has_include("tls_credentials.h")
 #define KHAIRC_HTTPS_ENABLED 1
@@ -100,9 +100,31 @@ namespace {
     }
 
 
-    // Only Toshiba is permitted on HTTPS writes; no raw IR, MiLife, TAIZ, Daikin or OTA.
+    esp_err_t postMilifeAction(httpd_req_t* request, JsonObjectConst command, const char* action) {
+        const bool on = strcmp(action, "power_on") == 0;
+        if (command.size() != 2 || (!on && strcmp(action, "power_off") != 0)) {
+            return sendError(request, "422 Unprocessable Entity", "unsupported_action");
+        }
+        if (OtaService::rebootPending()) {
+            return sendError(request, "503 Service Unavailable", "device_not_ready");
+        }
+        const MiotLocal::Status status = MiotLocal::setPower(on);
+        if (status == MiotLocal::Status::NotConfigured) {
+            return sendError(request, "503 Service Unavailable", "miot_not_configured");
+        }
+        if (status != MiotLocal::Status::Ok) {
+            return sendError(request,
+                             MiotLocal::isTimeout(status) ? "504 Gateway Timeout" : "502 Bad Gateway",
+                             MiotLocal::errorCode(status));
+        }
+        String reply = "{\"schema_version\":1,\"device_id\":\"milife_plug_10a\",\"action\":\"";
+        reply += action;
+        reply += "\",\"transport\":\"miio_lan\",\"status\":\"sent\",\"state_verified\":false}";
+        return sendJson(request, "200 OK", reply);
+    }
+
     // No command is queued or retried. API key checked before parsing a body.
-    esp_err_t postToshibaAction(httpd_req_t* request) {
+    esp_err_t postCommand(httpd_req_t* request) {
         constexpr size_t MAX_BODY_SIZE = 512;
         if (!authorized(request)) {
             return sendError(request, "401 Unauthorized", "unauthorized");
@@ -152,6 +174,9 @@ namespace {
         if (doc["device_id"].as<JsonString>().size() != strlen(device) ||
             doc["action"].as<JsonString>().size() != strlen(action)) {
             return sendError(request, "400 Bad Request", "invalid_command");
+        }
+        if (strcmp(device, "milife_plug_10a") == 0) {
+            return postMilifeAction(request, doc.as<JsonObjectConst>(), action);
         }
         if (strcmp(device, "toshiba_ac") != 0) {
             return sendError(request, "422 Unprocessable Entity", "unsupported_action");
@@ -253,7 +278,7 @@ namespace {
             !registerGet("/api/v1/capabilities", getCapabilities) ||
             !registerGet("/api/v1/devices", getDevices) ||
             !registerGet("/api/v1/devices/milife_plug_10a/state", getMilifeState) ||
-            !registerPost("/api/v1/commands", postToshibaAction) ||
+            !registerPost("/api/v1/commands", postCommand) ||
             !WebUi::registerRoutes(secureServer)) {
             httpd_ssl_stop(secureServer);
             secureServer = nullptr;

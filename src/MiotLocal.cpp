@@ -30,10 +30,11 @@ namespace {
 
 constexpr uint16_t kMiioPort = 54321;
 constexpr uint32_t kHelloTimeoutMs = 1200;
-constexpr uint32_t kReadTimeoutMs = 3200;
+constexpr uint32_t kReplyTimeoutMs = 3200;
 constexpr size_t kPacketLimit = 1024;
 constexpr size_t kPlainLimit = 256;
 constexpr size_t kHeaderSize = 32;
+enum class PowerOperation { Read, TurnOn, TurnOff };
 constexpr uint8_t kHello[32] = {
     0x21, 0x31, 0x00, 0x20,
     0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -89,7 +90,6 @@ bool sameSender(WiFiUDP& udp, const IPAddress& expected) {
     return udp.remoteIP() == expected && udp.remotePort() == kMiioPort;
 }
 
-// This firmware sends exactly one read-only request per HTTP GET.
 MiotLocal::Status hello(WiFiUDP& udp, const IPAddress& ip, uint32_t did,
                         uint32_t& stamp, uint32_t& tickMs) {
     if (!udp.beginPacket(ip, kMiioPort) ||
@@ -158,12 +158,15 @@ bool deriveKey(const uint8_t token[16], uint8_t key[16], uint8_t iv[16]) {
     return md5(material, sizeof(material), iv);
 }
 
-bool buildReadPacket(uint32_t did, uint32_t stamp, uint32_t id,
-                     const uint8_t token[16], uint8_t* out, size_t& length) {
+bool buildPowerPacket(uint32_t did, uint32_t stamp, uint32_t id, PowerOperation operation,
+                      const uint8_t token[16], uint8_t* out, size_t& length) {
     char payload[kPlainLimit];
+    const bool reading = operation == PowerOperation::Read;
     const int written = snprintf(payload, sizeof(payload),
-        "{\"id\":%lu,\"method\":\"get_properties\",\"params\":[{\"did\":\"%lu\",\"siid\":2,\"piid\":1}]}",
-        static_cast<unsigned long>(id), static_cast<unsigned long>(did));
+        "{\"id\":%lu,\"method\":\"%s\",\"params\":[{\"did\":\"%lu\",\"siid\":2,\"piid\":1%s}]}",
+        static_cast<unsigned long>(id), reading ? "get_properties" : "set_properties",
+        static_cast<unsigned long>(did),
+        reading ? "" : (operation == PowerOperation::TurnOn ? ",\"value\":true" : ",\"value\":false"));
     if (written <= 0 || written >= static_cast<int>(sizeof(payload))) return false;
     const size_t plainLength = static_cast<size_t>(written);
     const size_t padding = 16 - (plainLength % 16);
@@ -191,7 +194,8 @@ bool buildReadPacket(uint32_t did, uint32_t stamp, uint32_t id,
 }
 
 MiotLocal::PowerResult parseResponse(uint8_t* packet, size_t n, uint32_t did,
-                                    uint32_t expectedId, const uint8_t token[16]) {
+                                    uint32_t expectedId, const uint8_t token[16],
+                                    bool reading) {
     using MiotLocal::Status;
     if (n < kHeaderSize + 16 || packet[0] != 0x21 || packet[1] != 0x31 ||
         be16(packet + 2) != n || (n - kHeaderSize) % 16 != 0 ||
@@ -236,6 +240,7 @@ MiotLocal::PowerResult parseResponse(uint8_t* packet, size_t n, uint32_t did,
             item["siid"].as<int>() != 2 || item["piid"].as<int>() != 1) continue;
         if (!item["code"].is<int>()) return {Status::InvalidResponse, false};
         if (item["code"].as<int>() != 0) return {Status::DeviceRejected, false};
+        if (!reading) return {Status::Ok, false};
         if (!item["value"].is<bool>()) return {Status::InvalidResponse, false};
         return {Status::Ok, item["value"].as<bool>()};
     }
@@ -265,6 +270,8 @@ const char* errorCode(Status status) {
         case Status::HelloTimeout: return "miot_hello_timeout";
         case Status::DeviceMismatch: return "miot_device_mismatch";
         case Status::ReadTimeout: return "miot_read_timeout";
+        case Status::WriteTimeout: return "miot_write_timeout";
+        case Status::WriteUnconfirmed: return "miot_write_unconfirmed";
         case Status::AuthFailed: return "miot_auth_failed";
         case Status::DeviceRejected: return "miot_device_rejected";
         default: return "miot_protocol_error";
@@ -272,7 +279,8 @@ const char* errorCode(Status status) {
 }
 
 bool isTimeout(Status status) {
-    return status == Status::HelloTimeout || status == Status::ReadTimeout;
+    return status == Status::HelloTimeout || status == Status::ReadTimeout ||
+           status == Status::WriteTimeout;
 }
 
 String stateJson(bool on) {
@@ -288,7 +296,14 @@ bool configured() {
     return getConfig(ip, did, token);
 }
 
-PowerResult readPower() {
+}  // namespace MiotLocal
+
+namespace {
+
+MiotLocal::PowerResult exchangePower(PowerOperation operation) {
+    using MiotLocal::PowerResult;
+    using MiotLocal::Status;
+    const bool reading = operation == PowerOperation::Read;
     IPAddress ip;
     uint32_t did = 0;
     uint8_t token[16] = {};
@@ -307,8 +322,8 @@ PowerResult readPower() {
     const uint32_t id = (esp_random() % 999999UL) + 1;
     uint8_t packet[kPacketLimit];
     size_t length = 0;
-    if (!buildReadPacket(did, stamp + (millis() - tickMs) / 1000,
-                         id, token, packet, length)) {
+    if (!buildPowerPacket(did, stamp + (millis() - tickMs) / 1000,
+                          id, operation, token, packet, length)) {
         udp.stop();
         return {Status::InvalidResponse, false};
     }
@@ -319,25 +334,37 @@ PowerResult readPower() {
     }
 
     const uint32_t start = millis();
-    while (millis() - start < kReadTimeoutMs) {
+    while (millis() - start < kReplyTimeoutMs) {
         const int received = udp.parsePacket();
         if (received == 0) { delay(5); continue; }
         if (!sameSender(udp, ip)) { udp.clear(); continue; }
-        if (received > static_cast<int>(sizeof(packet))) {
+        if (received > static_cast<int>(sizeof(packet)) ||
+            udp.read(packet, received) != received) {
             udp.stop();
-            return {Status::InvalidResponse, false};
-        }
-        if (udp.read(packet, received) != received) {
-            udp.stop();
-            return {Status::InvalidResponse, false};
+            return {reading ? Status::InvalidResponse : Status::WriteUnconfirmed, false};
         }
         const PowerResult result = parseResponse(packet, static_cast<size_t>(received),
-                                                 did, id, token);
+                                                 did, id, token, reading);
         udp.stop();
+        if (!reading && result.status != Status::Ok && result.status != Status::DeviceRejected) {
+            return {Status::WriteUnconfirmed, false};
+        }
         return result;
     }
     udp.stop();
-    return {Status::ReadTimeout, false};
+    return {reading ? Status::ReadTimeout : Status::WriteTimeout, false};
+}
+
+}  // namespace
+
+namespace MiotLocal {
+
+PowerResult readPower() {
+    return exchangePower(PowerOperation::Read);
+}
+
+Status setPower(bool on) {
+    return exchangePower(on ? PowerOperation::TurnOn : PowerOperation::TurnOff).status;
 }
 
 void registerRoutes(WebServer& server) {
